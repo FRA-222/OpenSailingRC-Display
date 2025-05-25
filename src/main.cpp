@@ -41,9 +41,17 @@ typedef struct struct_message {
     float speed;     // en m/s
     float heading;   // en degrés (0=N, 90=E, 180=S, 270=W)
     uint8_t satellites; // nombre de satellites visibles
+    bool isGPSRecording; // Indique si l'enregistrement GPS est activé
 } struct_message;
 
 struct_message incomingData;
+
+// Structure pour recevoir les données
+typedef struct struct_message_display_to_boat {
+    bool recordGPS; // Indique si l'enregistrement GPS est activé;
+} struct_message_display_to_boat;
+
+struct_message_display_to_boat outgoingData;
 
 // Variables d'affichage
 float currentHeading = 0.0;
@@ -64,8 +72,24 @@ typedef struct command_message {
 } command_message;
 
 // MAC address of the boat (needs to be set to match your boat's ESP32)
-uint8_t boatAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};  // Replace with actual MAC
+uint8_t boatAddress[] = {0x24, 0xA1, 0x60, 0x45, 0xE7, 0xF8};  //Boat2
 
+/**
+ * @brief Fonction de rappel déclenchée après l'envoi d'un message ESP-NOW.
+ * 
+ * Cette fonction est appelée pour indiquer le statut d'un message envoyé via ESP-NOW.
+ * Elle affiche le résultat de la transmission sur le moniteur série, indiquant si
+ * le message a été envoyé avec succès ou s'il a échoué.
+ * 
+ * @param mac_addr Pointeur vers l'adresse MAC de l'appareil destinataire.
+ * @param status Statut de la transmission du message. Il peut être l'un des suivants :
+ *               - ESP_NOW_SEND_SUCCESS : Le message a été envoyé avec succès.
+ *               - ESP_NOW_SEND_FAIL : L'envoi du message a échoué.
+ */
+void onSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("Envoi: ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Succès" : "Échec");
+}
 
 /**
  * @brief Fonction de rappel pour la réception des messages ESP-NOW
@@ -89,6 +113,7 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len) {
   newData = true;
   
 }
+
 
 /**
  * @brief Affiche l'écran de démarrage initial
@@ -177,6 +202,18 @@ void drawDisplay() {
 
   // Barre de vitesse
   drawSpeedBar(speedKnots);
+
+  //Indique si l'enregistrement GPS est actif sur le bateau
+  if (incomingData.isGPSRecording) 
+  {  
+        M5.Lcd.fillRect(0, 200, 80, 40, GREEN);
+        M5.Lcd.setTextDatum(MC_DATUM);
+        M5.Lcd.drawString("RECORD", 40, 220);
+  } 
+  else 
+  { 
+        M5.Lcd.fillRect(0, 200, 80, 40, BLACK);      
+  }
 }
 
 /**
@@ -228,44 +265,6 @@ void drawCompass(float heading) {
 
 
 
-/**
- * @brief Envoie une commande à un dispositif distant via ESP-NOW
- * 
- * Cette fonction configure une connexion ESP-NOW avec un périphérique distant 
- * identifié par boatAddress, envoie une commande unique, puis supprime le pair
- * 
- * @param cmd Code de la commande à envoyer au dispositif distant
- * 
- * @details La fonction :
- * - Crée un message de commande 
- * - Configure les paramètres du pair ESP-NOW
- * - Établit la connexion avec le pair
- * - Envoie la commande
- * - Supprime le pair après l'envoi
- * 
- * @note Les erreurs d'ajout de pair et d'envoi sont affichées sur le port série
- */
-void sendCommand(uint8_t cmd) {
-  command_message msg;
-  msg.command = cmd;
-  
-  esp_now_peer_info_t peerInfo;
-  memcpy(peerInfo.peer_addr, boatAddress, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-  
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
-    return;
-  }
-  
-  esp_err_t result = esp_now_send(boatAddress, (uint8_t *)&msg, sizeof(msg));
-  if (result != ESP_OK) {
-    Serial.println("Error sending message");
-  }
-  
-  esp_now_del_peer(boatAddress);
-}
 
 
 /**
@@ -287,17 +286,24 @@ void checkButtons() {
   if (M5.Touch.getCount()) {
     auto t = M5.Touch.getDetail();
     if (t.y > 200) {  // Bottom area of screen
-      if (t.x < 160) {  // Left half - Start logging
-        sendCommand(1);
-        M5.Lcd.fillRect(0, 200, 80, 40, GREEN);
-        M5.Lcd.setTextDatum(MC_DATUM);
-        M5.Lcd.drawString("RECORD", 40, 220);
-      } else {  // Right half - Stop logging
-        sendCommand(2);
-        M5.Lcd.fillRect(0, 200, 80, 40, BLACK);
-        
+      if (t.x < 160) 
+      {  // Left half - Start logging
+        // Envoi des données GPS à l'afficheur distant
+        outgoingData.recordGPS = true; // Indique que l'enregistrement GPS est activé
+      } 
+      else 
+      {  // Right half - Stop logging
+        outgoingData.recordGPS = false; // Indique que l'enregistrement GPS est désactivé
       }
-    }
+   
+      // Envoi des données GPS à l'afficheur distant
+      esp_err_t result = esp_now_send(boatAddress, (uint8_t *)&outgoingData, sizeof(outgoingData));
+      if (result == ESP_OK) {
+        Serial.println("Données isGPSRecording envoyées au bateau");
+      } else {
+        Serial.println("Erreur d'envoi de donnée isGPSRecording envoyées au bateau");
+      }
+   }
   }
 }
 
@@ -333,6 +339,19 @@ void setup() {
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("Erreur d'initialisation ESPNow");
+    ESP.restart();
+  }
+
+  esp_now_register_send_cb(onSent);
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, boatAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) 
+  {
+    Serial.println("Erreur ajout peer");
     ESP.restart();
   }
 
@@ -383,6 +402,9 @@ void loop() {
     currentHeading -= 360;
   }
   drawCompass(currentHeading);
+
+
+
 
   delay(50);
 
