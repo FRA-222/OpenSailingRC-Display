@@ -328,7 +328,7 @@ void setup() {
   String macAddress = WiFi.macAddress();
 
   // Affiche sur le port série
-  Serial.println("Adresse MAC:");
+  Serial.println("Adresse MAC :");
   Serial.println(macAddress);
 
   if (esp_now_init() != ESP_OK) {
