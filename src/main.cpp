@@ -172,7 +172,7 @@ void drawSpeedBar(float speedKnots) {
  */
 void drawDisplay() {
   // Efface le haut pour infos
-  M5.Lcd.fillRect(0, 0, screenWidth, 70, BLACK);
+  M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
 
   // Speed / Course
   float speedKnots = incomingData.speed * 1.94384; //conversion m/s en noeuds 
@@ -184,24 +184,33 @@ void drawDisplay() {
   }
   
   M5.Lcd.setTextDatum(TL_DATUM);
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.setTextColor(RED);
-  
-  M5.Lcd.setCursor(10, 10);
-  //M5.Lcd.setTextColor(speedColor);
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.printf("Speed : %.1f knots", speedKnots);
-  M5.Lcd.setCursor(10, 40);
   M5.Lcd.setTextColor(WHITE);
-  M5.Lcd.printf("Course: %.1f deg", incomingData.heading);
+  
+  // Speed in large digital format
+  M5.Lcd.setTextSize(6);  // Increased size
+  M5.Lcd.setCursor(30, 50);
+  M5.Lcd.printf("%.1f", speedKnots);
+  M5.Lcd.setTextSize(6);
+  M5.Lcd.setCursor(160, 50);
+  M5.Lcd.println("KTS");
+
+  // Course in large digital format
+  M5.Lcd.setTextSize(6);  // Increased size
+  M5.Lcd.setTextColor(WHITE);
+  M5.Lcd.setCursor(30, 120);
+  M5.Lcd.printf("%.0f", incomingData.heading);
+  M5.Lcd.setTextSize(6);
+  M5.Lcd.setCursor(160, 120);
+  M5.Lcd.println("DEG");
 
   // Satellites
   M5.Lcd.setCursor(240, 10);
-  M5.Lcd.setTextColor(RED);
+  M5.Lcd.setTextColor(WHITE);
+  M5.Lcd.setTextSize(2);
   M5.Lcd.printf("%d SAT", incomingData.satellites);
 
   // Barre de vitesse
-  drawSpeedBar(speedKnots);
+  //drawSpeedBar(speedKnots);
 
   //Indique si l'enregistrement GPS est actif sur le bateau
   if (incomingData.isGPSRecording) 
@@ -401,10 +410,8 @@ void loop() {
   } else if (currentHeading >= 360) {
     currentHeading -= 360;
   }
-  drawCompass(currentHeading);
-
-
-
+ 
+  //drawCompass(currentHeading);
 
   delay(50);
 
