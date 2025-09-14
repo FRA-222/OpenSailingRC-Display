@@ -34,17 +34,31 @@
 #include <esp_now.h>
 #include <math.h>
 
-// Structure pour recevoir les données
-typedef struct struct_message {
+// Structure pour recevoir les données du bateau
+typedef struct struct_message_Boat {
+    int8_t messageType;  // 1 = Boat, 2 = Anemometer
     float latitude;
     float longitude;
     float speed;     // en m/s
     float heading;   // en degrés (0=N, 90=E, 180=S, 270=W)
     uint8_t satellites; // nombre de satellites visibles
     bool isGPSRecording; // Indique si l'enregistrement GPS est activé
-} struct_message;
+} struct_message_Boat;
 
-struct_message incomingData;
+struct_message_Boat incomingBoatData;
+
+/**
+ * @brief Structure containing anemometer data for broadcast
+ */
+typedef struct struct_message_Anemometer {
+    int8_t messageType;  // 1 = Boat, 2 = Anemometer
+    uint32_t anemometerId;   // Unique ID of the anemometer
+    uint8_t macAddress[6];   // MAC address of the device
+    float windSpeed;         // Wind speed value
+} struct_message_Anemometer;
+
+struct_message_Anemometer incomingAnemometerData;
+
 
 // Structure pour recevoir les données
 typedef struct struct_message_display_to_boat {
@@ -54,9 +68,15 @@ typedef struct struct_message_display_to_boat {
 struct_message_display_to_boat outgoingData;
 
 // Variables d'affichage
+//Boat data
 float currentHeading = 0.0;
 float targetHeading = 0.0;
+
+//Anemometer data
+float windSpeed = 0.0;
+uint32_t anemometerID = 0;
 bool newData = false;
+
 
 // Constantes pour Core2
 const int screenWidth = 320;
@@ -73,6 +93,9 @@ typedef struct command_message {
 
 // MAC address of the boat (needs to be set to match your boat's ESP32)
 uint8_t boatAddress[] = {0x24, 0xA1, 0x60, 0x45, 0xE7, 0xF8};  //Boat2
+
+// MAC address of the anemometer (needs to be set to match your anemometer's ESP32)
+uint8_t anemometerAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};  //Anemometer1
 
 /**
  * @brief Fonction de rappel déclenchée après l'envoi d'un message ESP-NOW.
@@ -102,16 +125,37 @@ void onSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
  * Affiche également la latitude et la longitude sur le port série pour le débogage.
  */
 void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len) {
-  memcpy(&incomingData, incomingDataPtr, sizeof(incomingData));
-  
-  Serial.print("Latitude: ");
-  Serial.println(incomingData.latitude, 6);
-  Serial.print("Longitude: ");
-  Serial.println(incomingData.longitude, 6);
+  uint8_t messageType = incomingDataPtr[0];  // Premier byte = type
 
-  targetHeading = incomingData.heading;
-  newData = true;
-  
+  switch (messageType)
+  {
+  case 1: // GPS Boat
+
+    memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
+
+    Serial.print("Latitude: ");
+    Serial.println(incomingBoatData.latitude, 6);
+    Serial.print("Longitude: ");
+    Serial.println(incomingBoatData.longitude, 6);
+    targetHeading = incomingBoatData.heading;
+    newData = true;
+
+    break;
+
+  case 2: // Anemometer
+
+    memcpy(&incomingAnemometerData, incomingDataPtr, sizeof(incomingAnemometerData));
+
+    Serial.print("Anemometer ID: ");
+    Serial.println(incomingAnemometerData.anemometerId);
+    Serial.print("Wind Speed: ");
+    Serial.println(incomingAnemometerData.windSpeed, 2);
+    windSpeed = incomingAnemometerData.windSpeed;
+    anemometerID = incomingAnemometerData.anemometerId;
+    newData = true;
+
+    break;
+  }
 }
 
 
@@ -175,7 +219,9 @@ void drawDisplay() {
   M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
 
   // Speed / Course
-  float speedKnots = incomingData.speed * 1.94384; //conversion m/s en noeuds 
+  float speedKnots = incomingBoatData.speed * 1.94384; //conversion m/s en noeuds 
+  float windSpeedKnots = incomingAnemometerData.windSpeed * 1.94384; //conversion m/s en noeuds
+
   uint32_t speedColor = GREEN;
   if (speedKnots > 2.0 && speedKnots <= 4.0) {
     speedColor = ORANGE;
@@ -187,36 +233,55 @@ void drawDisplay() {
   M5.Lcd.setTextColor(WHITE);
   
   // Speed in large digital format
-  M5.Lcd.setTextSize(6);  // Increased size
-  M5.Lcd.setCursor(30, 50);
+  M5.Lcd.setTextColor(RED);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(10, 50);
+  M5.Lcd.println("F222");
+  M5.Lcd.setTextColor(WHITE);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(140, 50);
   M5.Lcd.printf("%.1f", speedKnots);
-  M5.Lcd.setTextSize(6);
-  M5.Lcd.setCursor(160, 50);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(240, 50);
   M5.Lcd.println("KTS");
 
   // Course in large digital format
-  M5.Lcd.setTextSize(6);  // Increased size
+  M5.Lcd.setTextSize(4);
   M5.Lcd.setTextColor(WHITE);
-  M5.Lcd.setCursor(30, 120);
-  M5.Lcd.printf("%.0f", incomingData.heading);
-  M5.Lcd.setTextSize(6);
-  M5.Lcd.setCursor(160, 120);
+  M5.Lcd.setCursor(140, 90);
+  M5.Lcd.printf("%.0f", incomingBoatData.heading);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(240, 90);
   M5.Lcd.println("DEG");
 
   // Satellites
   M5.Lcd.setCursor(240, 10);
   M5.Lcd.setTextColor(WHITE);
   M5.Lcd.setTextSize(2);
-  M5.Lcd.printf("%d SAT", incomingData.satellites);
+  M5.Lcd.printf("%d SAT", incomingBoatData.satellites);
+
+  // WindSpeed in large digital format
+  M5.Lcd.setTextColor(RED);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(10, 150);
+  M5.Lcd.println("BUOY1");
+  M5.Lcd.setTextColor(WHITE);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(140, 150);
+  M5.Lcd.printf("%.1f", windSpeedKnots);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(240, 150);
+  M5.Lcd.println("KTS");
 
   // Barre de vitesse
   //drawSpeedBar(speedKnots);
 
   //Indique si l'enregistrement GPS est actif sur le bateau
-  if (incomingData.isGPSRecording) 
+  if (incomingBoatData.isGPSRecording) 
   {  
         M5.Lcd.fillRect(0, 200, 80, 40, GREEN);
         M5.Lcd.setTextDatum(MC_DATUM);
+        M5.Lcd.setTextSize(2);
         M5.Lcd.drawString("RECORD", 40, 220);
   } 
   else 
@@ -351,19 +416,33 @@ void setup() {
     ESP.restart();
   }
 
+  //Boat Management
   esp_now_register_send_cb(onSent);
 
-  esp_now_peer_info_t peerInfo = {};
-  memcpy(peerInfo.peer_addr, boatAddress, 6);
-  peerInfo.channel = 0;  
-  peerInfo.encrypt = false;
+  esp_now_peer_info_t peerInfoBoat = {};
+  memcpy(peerInfoBoat.peer_addr, boatAddress, 6);
+  peerInfoBoat.channel = 0;  
+  peerInfoBoat.encrypt = false;
   
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) 
+  if (esp_now_add_peer(&peerInfoBoat) != ESP_OK) 
   {
-    Serial.println("Erreur ajout peer");
+    Serial.println("Erreur ajout peer Boat");
     ESP.restart();
   }
 
+  //Anemometer Management
+  esp_now_peer_info_t peerInfoAnemometer = {};
+  memcpy(peerInfoAnemometer.peer_addr, anemometerAddress, 6);
+  peerInfoAnemometer.channel = 1;  
+  peerInfoAnemometer.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfoAnemometer) != ESP_OK) 
+  {
+    Serial.println("Erreur ajout peer Anemometer");
+    ESP.restart();
+  }
+  
+  
   esp_now_register_recv_cb(onReceive);
 
   showSplashScreen();
@@ -391,20 +470,8 @@ void loop() {
 
   checkButtons(); // Vérifie les interactions tactiles
 
-  /* if (abs(currentHeading - targetHeading) > 1.0) {
-    if ((((uint8_t)((targetHeading - currentHeading + 360))) % 360) > 180) {
-      currentHeading -= 2;
-    } else {
-      currentHeading += 2;
-    }
-    currentHeading = fmod((currentHeading + 360), 360);
-    drawCompass(currentHeading);
-  } else {
-    currentHeading = targetHeading;
-    drawCompass(currentHeading);
-  } */
-
-  currentHeading = incomingData.heading;
+  
+  currentHeading = incomingBoatData.heading;
   if (currentHeading < 0) {
     currentHeading += 360;
   } else if (currentHeading >= 360) {
