@@ -6,8 +6,6 @@
 
 Un système d'affichage GPS pour télécommande de voilier RC basé sur un M5Stack Core2. Ce projet fait partie de l'écosystème [OpenSailingRC](https://github.com/FRA-222) et affiche en temps réel les données GPS d'un voilier RC.
 
-![OpenSailingRC Display]
-
 ## 🎯 Caractéristiques
 
 ### 📊 Affichage des données GPS
