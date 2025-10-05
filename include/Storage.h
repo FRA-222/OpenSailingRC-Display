@@ -20,16 +20,29 @@
 class Logger;
 
 /**
+ * @enum DataType
+ * @brief Type of data being stored
+ */
+enum DataType {
+    DATA_TYPE_BOAT = 1,        ///< GPS and navigation data from boat
+    DATA_TYPE_ANEMOMETER = 2   ///< Wind speed and direction data from anemometer
+};
+
+/**
  * @struct StorageData
- * @brief Structure containing all data to be saved
+ * @brief Structure containing data to be saved with type identification
  * 
- * This structure encapsulates data received from the boat and anemometer
- * with a timestamp to allow chronological reconstruction.
+ * This structure encapsulates data received from boats or anemometers
+ * with a timestamp and type identifier to allow chronological reconstruction
+ * and proper data separation.
  */
 struct StorageData {
     unsigned long timestamp;                    ///< Reception timestamp (milliseconds since startup)
-    struct_message_Boat boatData;              ///< GPS and navigation data from boat
-    struct_message_Anemometer anemometerData;  ///< Wind speed and direction data
+    DataType dataType;                         ///< Type of data (boat or anemometer)
+    union {
+        struct_message_Boat boatData;          ///< GPS and navigation data (when dataType = DATA_TYPE_BOAT)
+        struct_message_Anemometer anemometerData; ///< Wind data (when dataType = DATA_TYPE_ANEMOMETER)
+    };
 };
 
 /**
@@ -93,6 +106,19 @@ public:
     bool initSD();
     
     /**
+     * @brief Initialize filename using RTC timestamp
+     * @return true if filename generated successfully, false otherwise
+     * 
+     * This method generates a unique filename based on the RTC timestamp.
+     * Must be called after RTC is initialized to get accurate timestamps.
+     * If RTC is not set (year < 2023), falls back to millis().
+     * 
+     * @note Call this method after RTC initialization in setup()
+     * @warning Must be called before any write operations
+     */
+    bool initializeFileName();
+    
+    /**
      * @brief Write a single data entry to SD card
      * @param data Structure containing data to save
      * @return true if write succeeds, false otherwise
@@ -115,7 +141,7 @@ public:
      *   },
      *   "anemometer": {
      *     "messageType": 2,
-     *     "anemometerId": 1,
+     *     "anemometerId": "AA:BB:CC:DD:EE:FF",
      *     "windSpeed": 12.5
      *   }
      * }
@@ -147,13 +173,44 @@ public:
     void log(const String& message);
     
     /**
-     * @brief Generate a unique filename based on timestamp
-     * @return Filename in format "/replay/replay_[timestamp].json"
+     * @brief Generate a unique filename based on RTC timestamp
+     * @return Filename in format "/replay/YYYY-MM-DD_HH-MM-SS.json" or "/replay/session_XXXX_N.json"
      * 
-     * Uses millis() to create a unique filename avoiding
-     * conflicts during rapid system restarts.
+     * Uses RTC to create a human-readable filename. If RTC is not set
+     * (year < 2023), falls back to session-based naming using MAC address
+     * suffix and incremental session number for uniqueness.
      * 
-     * @example "/replay/replay_1234567890.json"
+     * @example "/replay/2025-09-21_14-30-45.json" (RTC configured)
+     * @example "/replay/session_A1B2_1.json" (RTC not configured)
      */
     String generateFileName();
+    
+    /**
+     * @brief Synchronize RTC with NTP time server
+     * @param ntpServer NTP server address (default: "pool.ntp.org")
+     * @param gmtOffset GMT offset in seconds (default: 0)
+     * @param daylightOffset Daylight saving offset in seconds (default: 0)
+     * @return true if synchronization succeeds, false otherwise
+     * 
+     * Attempts to synchronize the M5Stack Core2 RTC with an NTP server
+     * when WiFi is available. This ensures accurate timestamps for
+     * file naming and data logging.
+     * 
+     * @note Requires active WiFi connection
+     * @warning Call only when WiFi is connected
+     */
+    bool syncRTCFromNTP(const char* ntpServer = "pool.ntp.org", 
+                        long gmtOffset = 0, 
+                        int daylightOffset = 0);
+    
+    /**
+     * @brief Get current timestamp from RTC
+     * @return Current Unix timestamp in seconds, or 0 if RTC not available
+     * 
+     * Returns the current time as Unix timestamp from the M5Stack Core2 RTC.
+     * If RTC is not properly initialized or time is invalid, returns 0.
+     * 
+     * @note Returns 0 if year < 2023 (indicating RTC not set)
+     */
+    time_t getCurrentTimestamp();
 };

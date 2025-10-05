@@ -410,8 +410,17 @@ bool FileServerManager::loadWiFiConfig() {
     log("Loading WiFi configuration...");
     
     if (!SD.exists("/wifi_config.json")) {
-        log("Error: wifi_config.json file not found on SD card");
-        return false;
+        log("Warning: wifi_config.json file not found on SD card");
+        log("Using hardcoded WiFi credentials as fallback");
+        
+        // Fallback avec des credentials par défaut
+        // TODO: Remplacer par vos vraies credentials WiFi
+        wifiConfig_.ssid = "iPhone de Philippe";  // Remplacez par votre WiFi
+        wifiConfig_.password = "motdepassewifi";  // Remplacez par votre mot de passe
+        wifiConfig_.isValid = true;
+        
+        log("Using fallback WiFi configuration: SSID=" + wifiConfig_.ssid);
+        return true;
     }
     
     File configFile = SD.open("/wifi_config.json", FILE_READ);

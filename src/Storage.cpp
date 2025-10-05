@@ -26,6 +26,9 @@
 #include "Storage.h"
 #include "Logger.h"
 #include <SPI.h>
+#include <M5Unified.h>
+#include <WiFi.h>
+#include <time.h>
 
 // SPI pin configuration for SD card (M5Stack Core2)
 #define SPI_SCK  18  ///< Serial Clock pin
@@ -34,8 +37,8 @@
 #define SPI_CS   4   ///< Chip Select pin (SD card selection)
 
 Storage::Storage() : logger_(nullptr), sdInitialized_(false) {
-    // Generate a unique filename based on startup timestamp
-    currentFileName_ = generateFileName();
+    // Filename will be generated later when RTC is initialized
+    currentFileName_ = "";
 }
 
 void Storage::setLogger(Logger& logger) {
@@ -82,12 +85,54 @@ bool Storage::initSD() {
     return true;
 }
 
+bool Storage::initializeFileName() {
+    if (currentFileName_.isEmpty()) {
+        currentFileName_ = generateFileName();
+        log("Filename initialized: " + currentFileName_);
+        return true;
+    }
+    return false; // Already initialized
+}
+
 String Storage::generateFileName() {
-    // Generate a filename based on startup timestamp
-    // Format: /replay/replay_[millis].json
-    // Example: /replay/replay_1234567890.json
-    unsigned long timestamp = millis();
-    return "/replay/replay_" + String(timestamp) + ".json";
+    // Generate a filename based on RTC timestamp
+    // Format: /replay/YYYY-MM-DD_HH-MM-SS.json
+    // Example: /replay/2025-09-21_14-30-45.json
+    
+    auto dt = M5.Rtc.getDateTime();
+    
+    // If RTC is not set (year < 2023), use unique identifier as fallback
+    if (dt.date.year < 2023) {
+        // Get MAC address for uniqueness
+        String mac = WiFi.macAddress();
+        mac.replace(":", "");  // Remove colons
+        
+        // Get last 4 characters of MAC for shorter name
+        String macSuffix = mac.substring(mac.length() - 4);
+        
+        // Find next available session number
+        int sessionNumber = 1;
+        String baseName = "/replay/session_" + macSuffix + "_";
+        
+        // Check for existing files and increment session number
+        while (sessionNumber < 1000) {
+            String testName = baseName + String(sessionNumber) + ".json";
+            if (!SD.exists(testName)) {
+                break;
+            }
+            sessionNumber++;
+        }
+        
+        return baseName + String(sessionNumber) + ".json";
+    }
+    
+    // Format with zero padding: YYYY-MM-DD_HH-MM-SS
+    char filename[40];
+    snprintf(filename, sizeof(filename), "/replay/%04d-%02d-%02d_%02d-%02d-%02d.json",
+             dt.date.year, dt.date.month, dt.date.date,
+             dt.time.hours, dt.time.minutes, dt.time.seconds);
+    
+    return String(filename);
 }
 
 bool Storage::writeData(const StorageData& data) {
@@ -95,6 +140,14 @@ bool Storage::writeData(const StorageData& data) {
     if (!sdInitialized_) {
         log("SD card not initialized");
         return false;
+    }
+    
+    // Initialize filename if not already done
+    if (currentFileName_.isEmpty()) {
+        if (!initializeFileName()) {
+            log("Error: Unable to initialize filename");
+            return false;
+        }
     }
     
     // Open file in append mode to add data at the end
@@ -107,22 +160,33 @@ bool Storage::writeData(const StorageData& data) {
     // Create JSON object with appropriate size for the data
     DynamicJsonDocument doc(512);
     doc["timestamp"] = data.timestamp;
+    doc["type"] = data.dataType;
     
-    // Serialize boat data into nested JSON object
-    JsonObject boat = doc.createNestedObject("boat");
-    boat["messageType"] = data.boatData.messageType;
-    boat["latitude"] = data.boatData.latitude;
-    boat["longitude"] = data.boatData.longitude;
-    boat["speed"] = data.boatData.speed;
-    boat["heading"] = data.boatData.heading;
-    boat["satellites"] = data.boatData.satellites;
-    boat["isGPSRecording"] = data.boatData.isGPSRecording;
-    
-    // Serialize anemometer data into nested JSON object
-    JsonObject anemometer = doc.createNestedObject("anemometer");
-    anemometer["messageType"] = data.anemometerData.messageType;
-    anemometer["anemometerId"] = data.anemometerData.anemometerId;
-    anemometer["windSpeed"] = data.anemometerData.windSpeed;
+    // Serialize data based on type
+    if (data.dataType == DATA_TYPE_BOAT) {
+        // Serialize boat data into nested JSON object
+        JsonObject boat = doc.createNestedObject("boat");
+        boat["messageType"] = data.boatData.messageType;
+        boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
+        boat["latitude"] = data.boatData.latitude;
+        boat["longitude"] = data.boatData.longitude;
+        boat["speed"] = data.boatData.speed;
+        boat["heading"] = data.boatData.heading;
+        boat["satellites"] = data.boatData.satellites;
+        boat["isGPSRecording"] = data.boatData.isGPSRecording;
+    } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
+        // Serialize anemometer data into nested JSON object
+        JsonObject anemometer = doc.createNestedObject("anemometer");
+        anemometer["messageType"] = data.anemometerData.messageType;
+        anemometer["anemometerId"] = data.anemometerData.anemometerId;
+        anemometer["windSpeed"] = data.anemometerData.windSpeed;
+        
+        // Add MAC address for device identification
+        JsonArray macArray = anemometer.createNestedArray("macAddress");
+        for (int i = 0; i < 6; i++) {
+            macArray.add(data.anemometerData.macAddress[i]);
+        }
+    }
     
     // Write JSON to file followed by newline
     serializeJson(doc, file);
@@ -141,6 +205,14 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
         return false;
     }
     
+    // Initialize filename if not already done
+    if (currentFileName_.isEmpty()) {
+        if (!initializeFileName()) {
+            log("Error: Unable to initialize filename for batch write");
+            return false;
+        }
+    }
+    
     // Open file in append mode for batch writing
     File file = SD.open(currentFileName_, FILE_APPEND);
     if (!file) {
@@ -154,22 +226,33 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
         // Create JSON document for each entry
         DynamicJsonDocument doc(512);
         doc["timestamp"] = data.timestamp;
+        doc["type"] = data.dataType;
         
-        // Serialize boat data
-        JsonObject boat = doc.createNestedObject("boat");
-        boat["messageType"] = data.boatData.messageType;
-        boat["latitude"] = data.boatData.latitude;
-        boat["longitude"] = data.boatData.longitude;
-        boat["speed"] = data.boatData.speed;
-        boat["heading"] = data.boatData.heading;
-        boat["satellites"] = data.boatData.satellites;
-        boat["isGPSRecording"] = data.boatData.isGPSRecording;
-        
-        // Serialize anemometer data
-        JsonObject anemometer = doc.createNestedObject("anemometer");
-        anemometer["messageType"] = data.anemometerData.messageType;
-        anemometer["anemometerId"] = data.anemometerData.anemometerId;
-        anemometer["windSpeed"] = data.anemometerData.windSpeed;
+        // Serialize data based on type
+        if (data.dataType == DATA_TYPE_BOAT) {
+            // Serialize boat data into nested JSON object
+            JsonObject boat = doc.createNestedObject("boat");
+            boat["messageType"] = data.boatData.messageType;
+            boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
+            boat["latitude"] = data.boatData.latitude;
+            boat["longitude"] = data.boatData.longitude;
+            boat["speed"] = data.boatData.speed;
+            boat["heading"] = data.boatData.heading;
+            boat["satellites"] = data.boatData.satellites;
+            boat["isGPSRecording"] = data.boatData.isGPSRecording;
+        } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
+            // Serialize anemometer data into nested JSON object
+            JsonObject anemometer = doc.createNestedObject("anemometer");
+            anemometer["messageType"] = data.anemometerData.messageType;
+            anemometer["anemometerId"] = data.anemometerData.anemometerId;
+            anemometer["windSpeed"] = data.anemometerData.windSpeed;
+            
+            // Add MAC address for device identification
+            JsonArray macArray = anemometer.createNestedArray("macAddress");
+            for (int i = 0; i < 6; i++) {
+                macArray.add(data.anemometerData.macAddress[i]);
+            }
+        }
         
         // Write JSON to file with line separator
         serializeJson(doc, file);
@@ -179,4 +262,89 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
     file.close();
     log("Batch of " + String(dataList.size()) + " entries written to SD");
     return true;
+}
+
+bool Storage::syncRTCFromNTP(const char* ntpServer, long gmtOffset, int daylightOffset) {
+    // Check if WiFi is connected
+    if (WiFi.status() != WL_CONNECTED) {
+        log("WiFi not connected - cannot sync RTC");
+        return false;
+    }
+    
+    log("Synchronizing RTC with NTP server: " + String(ntpServer));
+    
+    // Configure time server
+    configTime(gmtOffset, daylightOffset, ntpServer);
+    
+    // Wait for time synchronization (timeout after 10 seconds)
+    unsigned long startTime = millis();
+    time_t now = 0;
+    
+    while (now < 1000000000 && (millis() - startTime) < 10000) {
+        time(&now);
+        delay(100);
+    }
+    
+    if (now < 1000000000) {
+        log("Failed to synchronize with NTP server");
+        return false;
+    }
+    
+    // Convert to local time structure
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        log("Failed to get local time structure");
+        return false;
+    }
+    
+    // Set RTC with NTP time
+    m5::rtc_datetime_t datetime;
+    datetime.date.year = timeinfo.tm_year + 1900;
+    datetime.date.month = timeinfo.tm_mon + 1;
+    datetime.date.date = timeinfo.tm_mday;
+    datetime.time.hours = timeinfo.tm_hour;
+    datetime.time.minutes = timeinfo.tm_min;
+    datetime.time.seconds = timeinfo.tm_sec;
+    
+    M5.Rtc.setDateTime(datetime);
+    
+    log("RTC synchronized successfully: " + 
+        String(datetime.date.year) + "-" + 
+        String(datetime.date.month) + "-" + 
+        String(datetime.date.date) + " " +
+        String(datetime.time.hours) + ":" + 
+        String(datetime.time.minutes) + ":" + 
+        String(datetime.time.seconds));
+    
+    return true;
+}
+
+time_t Storage::getCurrentTimestamp() {
+    // Get current time from M5Stack Core2 RTC
+    auto datetime = M5.Rtc.getDateTime();
+    
+    // Check if RTC has valid time (year >= 2023)
+    if (datetime.date.year < 2023) {
+        log("RTC not set or invalid time - returning 0");
+        return 0;
+    }
+    
+    // Convert to Unix timestamp
+    struct tm timeinfo;
+    timeinfo.tm_year = datetime.date.year - 1900;  // tm_year is years since 1900
+    timeinfo.tm_mon = datetime.date.month - 1;     // tm_mon is 0-11
+    timeinfo.tm_mday = datetime.date.date;
+    timeinfo.tm_hour = datetime.time.hours;
+    timeinfo.tm_min = datetime.time.minutes;
+    timeinfo.tm_sec = datetime.time.seconds;
+    timeinfo.tm_isdst = -1;  // Let mktime determine DST
+    
+    time_t timestamp = mktime(&timeinfo);
+    
+    if (timestamp == -1) {
+        log("Error converting RTC time to timestamp");
+        return 0;
+    }
+    
+    return timestamp;
 }

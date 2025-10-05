@@ -1,0 +1,2 @@
+5f53cc2e1a942c7d4f83e71326998ef91b286551621e80b5cddaef4d210e2a69  releases/v1.0.2/OpenSailingRC_Display_v1.0.2_MERGED.bin
+a6eedd4b5837ba52276b4ebe606659f7c2a4b2dd849e2f85c60d0c0076e5a2a7  OpenSailingRC-Display-v1.0.2.zip

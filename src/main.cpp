@@ -48,6 +48,7 @@
 #include <esp_now.h>
 #include <math.h>
 #include <vector>
+#include <stddef.h>  // Pour offsetof
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
@@ -61,6 +62,18 @@
 // Instances globales
 struct_message_Boat incomingBoatData;
 struct_message_Anemometer incomingAnemometerData;
+
+// Structure de compatibilité pour bateau sans gpsTimestamp (pour debug)
+typedef struct struct_message_Boat_Legacy {
+    int8_t messageType;  // 1 = Boat, 2 = Anemometer
+    float latitude;
+    float longitude;
+    float speed;     // en m/s
+    float heading;   // en degrés (0=N, 90=E, 180=S, 270=W)
+    uint8_t satellites; // nombre de satellites visibles
+    bool isGPSRecording; // Indique si l'enregistrement GPS est activé
+} struct_message_Boat_Legacy;
+
 struct_message_display_to_boat outgoingData;
 
 // Instances des gestionnaires
@@ -75,10 +88,75 @@ std::vector<StorageData> pendingStorageData;
 SemaphoreHandle_t storageDataMutex;
 
 bool newData = false;
+bool sdInitialized = false; // État de la carte SD
 bool isRecording = false;
+
+// Variables pour le debouncing des boutons tactiles (un timer par bouton)
+unsigned long lastTouchTimeButton1 = 0; // Bouton GPS (gauche)
+unsigned long lastTouchTimeButton2 = 0; // Bouton central
+unsigned long lastTouchTimeButton3 = 0; // Bouton WiFi (droite)
+const unsigned long TOUCH_DEBOUNCE_MS = 500; // 500ms entre les appuis
 
 uint8_t boatAddress[] = {0x24, 0xA1, 0x60, 0x45, 0xE7, 0xF8};  //Boat2
 uint8_t anemometerAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};  //Anemometer1
+
+/**
+ * @brief Affiche des informations de diagnostic sur la structure des données
+ */
+void printStructureInfo() {
+    logger.log("=== DIAGNOSTIC STRUCTURE ===");
+    logger.log("--- BATEAU ---");
+    logger.log(String("Taille struct_message_Boat: ") + String(sizeof(struct_message_Boat)) + " bytes");
+    logger.log(String("Taille struct_message_Boat_Legacy: ") + String(sizeof(struct_message_Boat_Legacy)) + " bytes");
+    logger.log("--- ANÉMOMÈTRE ---");
+    logger.log(String("Taille struct_message_Anemometer: ") + String(sizeof(struct_message_Anemometer)) + " bytes");
+    logger.log(String("Taille struct_message_Anemometer_Legacy: ") + String(sizeof(struct_message_Anemometer_Legacy)) + " bytes");
+    logger.log("--- OFFSETS ANÉMOMÈTRE ACTUEL ---");
+    logger.log(String("Offset messageType: ") + String(offsetof(struct_message_Anemometer, messageType)));
+    logger.log(String("Offset anemometerId: ") + String(offsetof(struct_message_Anemometer, anemometerId)));
+    logger.log(String("Offset macAddress: ") + String(offsetof(struct_message_Anemometer, macAddress)));
+    logger.log(String("Offset windSpeed: ") + String(offsetof(struct_message_Anemometer, windSpeed)));
+    logger.log("--- OFFSETS ANÉMOMÈTRE LEGACY ---");
+    logger.log(String("Legacy offset messageType: ") + String(offsetof(struct_message_Anemometer_Legacy, messageType)));
+    logger.log(String("Legacy offset anemometerId: ") + String(offsetof(struct_message_Anemometer_Legacy, anemometerId)));
+    logger.log(String("Legacy offset macAddress: ") + String(offsetof(struct_message_Anemometer_Legacy, macAddress)));
+    logger.log(String("Legacy offset windSpeed: ") + String(offsetof(struct_message_Anemometer_Legacy, windSpeed)));
+    logger.log("--- OFFSETS BATEAU ACTUEL ---");
+    logger.log(String("Offset messageType: ") + String(offsetof(struct_message_Boat, messageType)));
+    logger.log(String("Offset gpsTimestamp: ") + String(offsetof(struct_message_Boat, gpsTimestamp)));
+    logger.log(String("Offset latitude: ") + String(offsetof(struct_message_Boat, latitude)));
+    logger.log(String("Offset longitude: ") + String(offsetof(struct_message_Boat, longitude)));
+    logger.log(String("Offset speed: ") + String(offsetof(struct_message_Boat, speed)));
+    logger.log(String("Offset heading: ") + String(offsetof(struct_message_Boat, heading)));
+    logger.log(String("Offset satellites: ") + String(offsetof(struct_message_Boat, satellites)));
+    logger.log(String("Offset isGPSRecording: ") + String(offsetof(struct_message_Boat, isGPSRecording)));
+    logger.log("--- OFFSETS BATEAU LEGACY ---");
+    logger.log(String("Legacy offset messageType: ") + String(offsetof(struct_message_Boat_Legacy, messageType)));
+    logger.log(String("Legacy offset latitude: ") + String(offsetof(struct_message_Boat_Legacy, latitude)));
+    logger.log(String("Legacy offset longitude: ") + String(offsetof(struct_message_Boat_Legacy, longitude)));
+    logger.log(String("Legacy offset speed: ") + String(offsetof(struct_message_Boat_Legacy, speed)));
+    logger.log(String("Legacy offset heading: ") + String(offsetof(struct_message_Boat_Legacy, heading)));
+    logger.log(String("Legacy offset satellites: ") + String(offsetof(struct_message_Boat_Legacy, satellites)));
+    logger.log(String("Legacy offset isGPSRecording: ") + String(offsetof(struct_message_Boat_Legacy, isGPSRecording)));
+    logger.log("===============================");
+}
+
+/**
+ * @brief Synchronize RTC with NTP when WiFi becomes available
+ * 
+ * This function attempts to synchronize the M5Stack Core2 RTC with an NTP server
+ * to ensure accurate timestamps for file naming and data logging.
+ */
+void syncRTCIfWiFiConnected() {
+    if (WiFi.status() == WL_CONNECTED) {
+        logger.log("WiFi connected - attempting RTC synchronization");
+        if (storage.syncRTCFromNTP("pool.ntp.org", 3600, 3600)) { // GMT+1 + DST
+            logger.log("RTC synchronized successfully with NTP");
+        } else {
+            logger.log("RTC synchronization failed");
+        }
+    }
+}
 
 
 
@@ -110,42 +188,190 @@ void onSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
  */
 void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
 {
+  // Debug: Afficher les données brutes reçues
+  logger.log(String("=== DONNÉES BRUTES REÇUES ==="));
+  logger.log(String("Longueur: ") + String(len) + " bytes");
+  String hexData = "";
+  for (int i = 0; i < len && i < 32; i++) {  // Limiter à 32 bytes pour éviter le spam
+    if (i > 0) hexData += " ";
+    if (incomingDataPtr[i] < 16) hexData += "0";
+    hexData += String(incomingDataPtr[i], HEX);
+  }
+  logger.log(String("Hex: ") + hexData);
+  logger.log(String("============================="));
+
   uint8_t messageType = incomingDataPtr[0]; // Premier byte = type
+  logger.log(String("Message Type détecté: ") + String(messageType));
 
   switch (messageType)
   {
   case 1: // GPS Boat
 
-    memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
+    // Tester d'abord avec la structure legacy si la taille correspond
+    if (len == sizeof(struct_message_Boat_Legacy)) {
+        logger.log("*** UTILISATION STRUCTURE LEGACY ***");
+        struct_message_Boat_Legacy legacyData;
+        memcpy(&legacyData, incomingDataPtr, sizeof(legacyData));
+        
+        // Copier dans la structure actuelle avec des valeurs par défaut
+        incomingBoatData.messageType = legacyData.messageType;
+        incomingBoatData.gpsTimestamp = 0; // Pas de timestamp GPS disponible
+        incomingBoatData.latitude = legacyData.latitude;
+        incomingBoatData.longitude = legacyData.longitude;
+        incomingBoatData.speed = legacyData.speed;
+        incomingBoatData.heading = legacyData.heading;
+        incomingBoatData.satellites = legacyData.satellites;
+        incomingBoatData.isGPSRecording = legacyData.isGPSRecording;
+        
+        logger.log("=== DONNÉES BATEAU (LEGACY) ===");
+        logger.log(String("Speed (legacy): ") + String(legacyData.speed, 2) + " m/s");
+    } else if (len == sizeof(struct_message_Boat)) {
+        logger.log("*** UTILISATION STRUCTURE ACTUELLE ***");
+        memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
+    } else {
+        logger.log("*** TAILLE INATTENDUE ***");
+        logger.log(String("Reçu: ") + String(len) + " bytes");
+        logger.log(String("Attendu actuel: ") + String(sizeof(struct_message_Boat)) + " bytes");
+        logger.log(String("Attendu legacy: ") + String(sizeof(struct_message_Boat_Legacy)) + " bytes");
+        // Essayer quand même avec la structure actuelle
+        memcpy(&incomingBoatData, incomingDataPtr, min(len, (int)sizeof(incomingBoatData)));
+    }
 
+    logger.log(String("=== DONNÉES BATEAU REÇUES ==="));
+    logger.log(String("Taille reçue: ") + String(len) + " bytes");
+    logger.log(String("Taille structure: ") + String(sizeof(incomingBoatData)) + " bytes");
+    logger.log(String("Message Type: ") + String(incomingBoatData.messageType));
+    logger.log(String("GPS Timestamp: ") + String(incomingBoatData.gpsTimestamp));
     logger.log(String("Latitude: ") + String(incomingBoatData.latitude, 6));
     logger.log(String("Longitude: ") + String(incomingBoatData.longitude, 6));
+    logger.log(String("Speed: ") + String(incomingBoatData.speed, 2) + " m/s");
+    logger.log(String("Heading: ") + String(incomingBoatData.heading, 1) + "°");
+    logger.log(String("Satellites: ") + String(incomingBoatData.satellites));
+    logger.log(String("GPS Recording: ") + String(incomingBoatData.isGPSRecording ? "true" : "false"));
+    logger.log(String("=============================="));
     newData = true;
 
-    // Ajouter les données à la queue pour stockage
-    StorageData storageData;
-    storageData.timestamp = millis();
-    storageData.boatData = incomingBoatData;
-    storageData.anemometerData = incomingAnemometerData; // Données actuelles de l'anémomètre
-
+    // Ajouter les données du bateau à la queue pour stockage
     if (isRecording) {
-      if (xSemaphoreTake(storageDataMutex, portMAX_DELAY) == pdTRUE) {
+      StorageData storageData;
+      // Utiliser le timestamp GPS du bateau
+      storageData.timestamp = incomingBoatData.gpsTimestamp;
+      storageData.dataType = DATA_TYPE_BOAT;
+      storageData.boatData = incomingBoatData;
+
+      // Vérifier si la SD est initialisée avant de stocker
+      if (sdInitialized && xSemaphoreTake(storageDataMutex, portMAX_DELAY) == pdTRUE) {
         pendingStorageData.push_back(storageData);
-        logger.log("Données ajoutées à la file d'attente de stockage: " + String(storageData.boatData.latitude) + ", " + String(storageData.boatData.longitude) + ", " + String(storageData.anemometerData.windSpeed));
-        logger.log("Données ajoutées à la file d'attente de stockage: " + String(pendingStorageData.size()));
+        logger.log("Données bateau ajoutées: " + String(storageData.boatData.latitude, 6) + ", " + String(storageData.boatData.longitude, 6));
+        logger.log("Timestamp GPS: " + String(storageData.timestamp));
+        logger.log("File d'attente: " + String(pendingStorageData.size()) + " entrées");
 
         xSemaphoreGive(storageDataMutex);
+      } else if (!sdInitialized) {
+        logger.log("Données bateau ignorées - SD non initialisée");
       }
     }
     break;
 
   case 2: // Anemometer
 
-    memcpy(&incomingAnemometerData, incomingDataPtr, sizeof(incomingAnemometerData));
+    // Diagnostic similaire au bateau
+    logger.log("=== ANÉMOMÈTRE - DONNÉES BRUTES ===");
+    logger.log(String("Taille reçue: ") + String(len) + " bytes");
+    logger.log(String("Attendu actuel: ") + String(sizeof(struct_message_Anemometer)) + " bytes");
+    logger.log(String("Attendu legacy: ") + String(sizeof(struct_message_Anemometer_Legacy)) + " bytes");
 
+    // Tester d'abord avec la structure legacy si la taille correspond
+    if (len == sizeof(struct_message_Anemometer_Legacy)) {
+        logger.log("*** UTILISATION STRUCTURE ANÉMOMÈTRE LEGACY ***");
+        struct_message_Anemometer_Legacy legacyData;
+        memcpy(&legacyData, incomingDataPtr, sizeof(legacyData));
+        
+        // Copier dans la structure actuelle avec conversion
+        incomingAnemometerData.messageType = legacyData.messageType;
+        
+        // Convertir uint32_t ID en string MAC
+        String macString = "";
+        for (int i = 0; i < 6; i++) {
+            if (i > 0) macString += ":";
+            if (legacyData.macAddress[i] < 16) macString += "0";
+            macString += String(legacyData.macAddress[i], HEX);
+        }
+        macString.toUpperCase();
+        strcpy(incomingAnemometerData.anemometerId, macString.c_str());
+        
+        // Copier MAC et vitesse
+        memcpy(incomingAnemometerData.macAddress, legacyData.macAddress, 6);
+        incomingAnemometerData.windSpeed = legacyData.windSpeed;
+        
+        logger.log("=== DONNÉES ANÉMOMÈTRE (LEGACY) ===");
+        logger.log(String("Legacy ID: ") + String(legacyData.anemometerId));
+        logger.log(String("Wind Speed (legacy): ") + String(legacyData.windSpeed, 2));
+        
+    } else if (len == sizeof(struct_message_Anemometer)) {
+        logger.log("*** UTILISATION STRUCTURE ANÉMOMÈTRE ACTUELLE ***");
+        memcpy(&incomingAnemometerData, incomingDataPtr, sizeof(incomingAnemometerData));
+        
+        // Formater l'ID de l'anémomètre à partir de l'adresse MAC (si pas déjà formaté)
+        if (strlen(incomingAnemometerData.anemometerId) == 0) {
+            String macString = "";
+            for (int i = 0; i < 6; i++) {
+                if (i > 0) macString += ":";
+                if (incomingAnemometerData.macAddress[i] < 16) macString += "0";
+                macString += String(incomingAnemometerData.macAddress[i], HEX);
+            }
+            macString.toUpperCase();
+            strcpy(incomingAnemometerData.anemometerId, macString.c_str());
+        }
+        
+    } else {
+        logger.log("*** TAILLE ANÉMOMÈTRE INATTENDUE ***");
+        logger.log(String("Reçu: ") + String(len) + " bytes");
+        // Essayer quand même avec la structure actuelle
+        memcpy(&incomingAnemometerData, incomingDataPtr, min(len, (int)sizeof(incomingAnemometerData)));
+        
+        // Formater l'ID comme fallback
+        String macString = "";
+        for (int i = 0; i < 6; i++) {
+            if (i > 0) macString += ":";
+            if (incomingAnemometerData.macAddress[i] < 16) macString += "0";
+            macString += String(incomingAnemometerData.macAddress[i], HEX);
+        }
+        macString.toUpperCase();
+        strcpy(incomingAnemometerData.anemometerId, macString.c_str());
+    }
+
+    logger.log(String("=== DONNÉES ANÉMOMÈTRE FINALES ==="));
+    logger.log(String("Message Type: ") + String(incomingAnemometerData.messageType));
     logger.log(String("Anemometer ID: ") + String(incomingAnemometerData.anemometerId));
     logger.log(String("Wind Speed: ") + String(incomingAnemometerData.windSpeed, 2));
+    logger.log(String("=================================="));
     newData = true;
+    
+    // Ajouter les données de l'anémomètre à la queue pour stockage
+    if (isRecording) {
+      StorageData storageData;
+      // Utiliser le timestamp RTC du Core2
+      storageData.timestamp = storage.getCurrentTimestamp();
+      // Si RTC non disponible, utiliser millis() comme fallback
+      if (storageData.timestamp == 0) {
+        storageData.timestamp = millis() / 1000; // Convertir en secondes
+      }
+      storageData.dataType = DATA_TYPE_ANEMOMETER;
+      storageData.anemometerData = incomingAnemometerData;
+
+      // Vérifier si la SD est initialisée avant de stocker
+      if (sdInitialized && xSemaphoreTake(storageDataMutex, portMAX_DELAY) == pdTRUE) {
+        pendingStorageData.push_back(storageData);
+        logger.log("Données anémomètre ajoutées: ID=" + String(incomingAnemometerData.anemometerId) + ", Vitesse=" + String(incomingAnemometerData.windSpeed, 2));
+        logger.log("Timestamp RTC: " + String(storageData.timestamp));
+        logger.log("File d'attente: " + String(pendingStorageData.size()) + " entrées");
+
+        xSemaphoreGive(storageDataMutex);
+      } else if (!sdInitialized) {
+        logger.log("Données anémomètre ignorées - SD non initialisée");
+      }
+    }
     
     break;
   }
@@ -270,6 +496,20 @@ void setup() {
   cfg.output_power = true;
 
   M5.begin(cfg);
+  
+  // Initialize RTC if not already set
+  // Check if RTC has a valid date (after 2023)
+  auto dt = M5.Rtc.getDateTime();
+  if (dt.date.year < 2023) {
+    // Set a default date/time if RTC is not configured
+    // Format: Year, Month, Day, Hour, Minute, Second
+    M5.Rtc.setDateTime({{2025, 9, 21}, {12, 0, 0}});
+    logger.log("RTC initialized with default date: 2025-09-21 12:00:00");
+  } else {
+    logger.log("RTC already configured: " + String(dt.date.year) + "-" + 
+               String(dt.date.month) + "-" + String(dt.date.date));
+  }
+  
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
 
@@ -315,13 +555,26 @@ void setup() {
   
   esp_now_register_recv_cb(onReceive);
 
+  // Afficher les informations de diagnostic des structures
+  printStructureInfo();
+
   display.showSplashScreen();
   logger.log("Setup started");
 
   if (!storage.initSD()) {
         logger.log("Erreur d'initialisation du stockage SD");
-        vTaskDelete(NULL);
-        return;
+        display.showSDError("Carte SD non détectée");
+        sdInitialized = false;
+        // Continuer le setup au lieu de faire planter le système
+    } else {
+        sdInitialized = true;
+        
+        // Initialize filename now that RTC is configured
+        if (!storage.initializeFileName()) {
+            logger.log("Erreur d'initialisation du nom de fichier");
+        } else {
+            logger.log("Nom de fichier initialisé avec horodatage RTC");
+        }
     }
     
   logger.log("Tâche de stockage SD démarrée");
@@ -361,58 +614,172 @@ void loop() {
 
   M5.update(); // Met à jour l'état des boutons et autres périphériques M5
   
+  // Si la SD n'est pas initialisée, vérifier si l'utilisateur touche l'écran pour réessayer
+  if (!sdInitialized) {
+    if (M5.Touch.getCount()) {
+      logger.log("Tentative de réinitialisation SD...");
+      if (storage.initSD()) {
+        sdInitialized = true;
+        logger.log("SD réinitialisée avec succès");
+        if (!storage.initializeFileName()) {
+          logger.log("Erreur d'initialisation du nom de fichier");
+        }
+      } else {
+        logger.log("Échec de la réinitialisation SD");
+        display.showSDError("Réinitialisation échouée");
+        delay(2000); // Attendre 2 secondes avant de permettre un nouveau test
+      }
+    }
+    // Afficher les données malgré l'erreur SD si on a des données
+    if (millis() % 5000 < 100) { // Toutes les 5 secondes pendant 100ms
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+      delay(100);
+      display.showSDError("Toucher écran pour réessayer");
+    }
+    delay(50);
+    return;
+  }
+  
   // Gestion des boutons tactiles en bas de l'écran
+  // Utiliser wasPressed() pour détecter uniquement le DÉBUT de l'appui
+  // et éviter les détections multiples pendant que le doigt reste posé
   if (M5.Touch.getCount()) {
     auto t = M5.Touch.getDetail();
-    if (t.y > 200) {  // Zone des boutons en bas de l'écran
+    
+    // Vérifier si c'est un nouvel appui (wasPressed) et non un maintien
+    if (t.wasPressed() && t.y > 200) {  // Zone des boutons en bas de l'écran
+      
+      unsigned long currentTime = millis();
+      logger.log(String("Touch PRESSED à x=") + String(t.x) + ", y=" + String(t.y));
       
       // Bouton 1 (gauche) - Gestion enregistrement GPS
       if (t.x < 107) {  // Premier tiers de l'écran (0-106px)
+        // Vérifier le debouncing pour ce bouton spécifique
+        if (currentTime - lastTouchTimeButton1 < TOUCH_DEBOUNCE_MS) {
+          logger.log("Appui ignoré sur bouton GPS - debouncing actif");
+          return;
+        }
+        lastTouchTimeButton1 = currentTime;
+        
         // Toggle de l'enregistrement GPS
         isRecording = !isRecording;
         logger.log(String("Enregistrement GPS ") + (isRecording ? "activé" : "désactivé"));
-        display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+        // L'affichage sera rafraîchi automatiquement dans la boucle principale
+      }
+      
+      // Bouton 2 (centre) - Réservé pour usage futur
+      else if (t.x >= 107 && t.x <= 213) {  // Deuxième tiers (107-213px)
+        // Vérifier le debouncing pour ce bouton spécifique
+        if (currentTime - lastTouchTimeButton2 < TOUCH_DEBOUNCE_MS) {
+          logger.log("Appui ignoré sur bouton central - debouncing actif");
+          return;
+        }
+        lastTouchTimeButton2 = currentTime;
+        
+        logger.log("Bouton central pressé (non assigné)");
+        // Fonctionnalité future
       }
       
       // Bouton 3 (droite) - Gestion serveur de fichiers
       else if (t.x > 213) {  // Dernier tiers de l'écran (214-320px)
+        // Vérifier le debouncing pour ce bouton spécifique
+        if (currentTime - lastTouchTimeButton3 < TOUCH_DEBOUNCE_MS) {
+          logger.log("Appui ignoré sur bouton WiFi - debouncing actif");
+          return;
+        }
+        lastTouchTimeButton3 = currentTime;
+        
+        logger.log("Bouton serveur de fichiers détecté");
+        logger.log(String("État serveur AVANT: ") + (fileServer.isServerActive() ? "ACTIF" : "INACTIF"));
+        
         if (!fileServer.isServerActive()) {
           logger.log("Démarrage du serveur de fichiers HTTP...");
-          if (fileServer.startFileServer()) {
+          bool startResult = fileServer.startFileServer();
+          logger.log(String("Résultat startFileServer(): ") + (startResult ? "SUCCÈS" : "ÉCHEC"));
+          logger.log(String("État serveur APRÈS start: ") + (fileServer.isServerActive() ? "ACTIF" : "INACTIF"));
+          
+          if (startResult) {
             display.showFileServerStatus(true, fileServer.getServerIP());
             logger.log("Serveur de fichiers actif sur: http://" + fileServer.getServerIP());
-            // Rafraîchir l'affichage pour montrer le nouveau statut
-            display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+            
+            // Synchronize RTC with NTP now that WiFi is connected
+            syncRTCIfWiFiConnected();
+            
+            // Redessiner les boutons pour afficher le bouton WiFi en VERT
+            display.drawButtonLabels(isRecording, true);
+            
+            // L'affichage sera rafraîchi automatiquement après le message
           } else {
             logger.log("Erreur: Impossible de démarrer le serveur de fichiers");
             display.showFileServerStatus(false, "Erreur config WiFi");
           }
         } else {
           logger.log("Arrêt du serveur de fichiers HTTP...");
-          if (fileServer.stopFileServer()) {
+          bool stopResult = fileServer.stopFileServer();
+          logger.log(String("Résultat stopFileServer(): ") + (stopResult ? "SUCCÈS" : "ÉCHEC"));
+          logger.log(String("État serveur APRÈS stop: ") + (fileServer.isServerActive() ? "ACTIF" : "INACTIF"));
+          
+          if (stopResult) {
             display.showFileServerStatus(false, "");
             logger.log("Serveur de fichiers désactivé, retour en mode ESPNow");
             
             // Réinitialiser ESPNow après la déconnexion WiFi
             reinitializeESPNow();
             
-            // Rafraîchir l'affichage pour montrer le nouveau statut
-            display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+            // Redessiner les boutons pour afficher le bouton WiFi en ROUGE
+            display.drawButtonLabels(isRecording, false);
+            
+            // L'affichage sera rafraîchi automatiquement après le message
           }
         }
+        
+        logger.log("Fin traitement bouton serveur de fichiers");
       }
-      
-      // Attendre que l'utilisateur relâche le doigt
-      delay(200);
     }
   }
   
   // Gérer les requêtes du serveur de fichiers
   fileServer.handleClient();
+  
+  // Mettre à jour l'affichage temporaire du serveur (non-bloquant)
+  display.updateServerMessageDisplay();
+  
+  // Vérifier si un refresh est nécessaire après un message serveur
+  // MAIS ne pas rafraîchir si le serveur est actif (on veut garder l'URL affichée)
+  if (display.needsRefresh() && !fileServer.isServerActive()) {
+    logger.log("Refresh automatique après message serveur");
+    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+  }
  
-  if (newData) {
-    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording,fileServer.isServerActive());
-    newData = false;
+  // Ne pas rafraîchir l'affichage si le serveur de fichiers est actif
+  // pour garder l'URL visible à l'écran
+  if (!fileServer.isServerActive()) {
+    if (newData) {
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+      newData = false;
+    }
+    
+    // Refresh périodique pour s'assurer que l'état des boutons est correct
+    static unsigned long lastPeriodicRefresh = 0;
+    if (millis() - lastPeriodicRefresh > 1000) { // Toutes les secondes
+      lastPeriodicRefresh = millis();
+      
+      // Debug: Afficher l'état du serveur périodiquement
+      static bool lastServerState = false;
+      bool currentServerState = fileServer.isServerActive();
+      if (currentServerState != lastServerState) {
+        logger.log(String("CHANGEMENT État serveur: ") + (currentServerState ? "ACTIF" : "INACTIF"));
+        lastServerState = currentServerState;
+      }
+      
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+    }
+  } else {
+    // Serveur actif : consommer le flag newData mais ne pas rafraîchir l'écran
+    if (newData) {
+      newData = false;
+      logger.log("Données reçues mais affichage suspendu (serveur actif)");
+    }
   }
 
   delay(50);

@@ -1,0 +1,73 @@
+╔══════════════════════════════════════════════════════════════╗
+║  INSTALLATION AVEC M5BURNER - OpenSailingRC Display V1.0.2  ║
+╚══════════════════════════════════════════════════════════════╝
+
+📋 FICHIER À UTILISER:
+   OpenSailingRC_Display_v1.0.2_MERGED.bin
+
+⚠️  CONFIGURATION IMPORTANTE:
+   • Adresse de flash: 0x0 (ZÉRO, pas 0x10000 !)
+   • Erase Flash: COCHÉ
+   • Baud Rate: 921600 ou 115200
+
+📝 ÉTAPES D'INSTALLATION:
+
+1. Télécharger M5Burner depuis:
+   https://docs.m5stack.com/en/download
+
+2. Connecter le M5Stack Core2 via USB-C
+
+3. Ouvrir M5Burner
+
+4. Cliquer sur "Custom Firmware"
+
+5. Sélectionner le fichier:
+   OpenSailingRC_Display_v1.0.2_MERGED.bin
+
+6. ⚠️  IMPORTANT: Changer l'adresse à 0x0
+   (Par défaut M5Burner met 0x10000, il faut changer !)
+
+7. Cocher "Erase Flash"
+
+8. Sélectionner le port série (COM ou /dev/cu.usbserial-xxx)
+
+9. Cliquer "BURN"
+
+10. Attendre la fin du flash (~1 minute)
+
+✅ VÉRIFICATION:
+
+Après le flash, le M5Stack Core2 devrait:
+• Redémarrer automatiquement
+• Afficher le splash "WIND / BOAT" pendant 2 secondes
+• Afficher l'interface principale avec:
+  - Indicateur BOAT (vitesse, cap, satellites)
+  - Indicateur BUOY (vitesse)
+  - 3 boutons en bas: STOP, (vide), WIFI
+
+🆘 DÉPANNAGE:
+
+❌ Core2 reboot en boucle:
+   → Vérifier que l'adresse est bien 0x0 (pas 0x10000)
+   → Effacer complètement la flash et réessayer
+
+❌ "invalid header" dans les logs:
+   → Flasher avec esptool au lieu de M5Burner
+   → Utiliser le script fix_bootloader_error.sh
+
+❌ Écran noir:
+   → Maintenir boutons A+C pendant 10 secondes (reset)
+   → Flasher à nouveau
+
+📚 DOCUMENTATION COMPLÈTE:
+
+Voir les fichiers dans le répertoire releases/:
+• M5BURNER_INSTALLATION_GUIDE.md (guide détaillé)
+• M5BURNER_QUICK_GUIDE.md (référence rapide)
+• FIRMWARE_INFO.md (informations techniques)
+
+🔗 SUPPORT:
+
+GitHub: https://github.com/FRA-222/OpenSailingRC-Display/issues
+
+════════════════════════════════════════════════════════════════

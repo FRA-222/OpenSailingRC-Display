@@ -4,6 +4,7 @@
 // Structures de données
 typedef struct struct_message_Boat {
     int8_t messageType;  // 1 = Boat, 2 = Anemometer
+    uint32_t gpsTimestamp; // Timestamp GPS en secondes depuis epoch Unix
     float latitude;
     float longitude;
     float speed;     // en m/s
@@ -14,10 +15,18 @@ typedef struct struct_message_Boat {
 
 typedef struct struct_message_Anemometer {
     int8_t messageType;  // 1 = Boat, 2 = Anemometer
-    uint32_t anemometerId;   // Unique ID of the anemometer
+    char anemometerId[18];   // MAC address as string (format: "AA:BB:CC:DD:EE:FF")
     uint8_t macAddress[6];   // MAC address of the device
     float windSpeed;         // Wind speed value
 } struct_message_Anemometer;
+
+// Structure legacy pour compatibilité avec ancienne version anémomètre
+typedef struct struct_message_Anemometer_Legacy {
+    int8_t messageType;  // 1 = Boat, 2 = Anemometer
+    uint32_t anemometerId;   // Ancien format: ID numérique
+    uint8_t macAddress[6];   // MAC address of the device
+    float windSpeed;         // Wind speed value
+} struct_message_Anemometer_Legacy;
 
 typedef struct struct_message_display_to_boat {
     bool recordGPS; // Indique si l'enregistrement GPS est activé;

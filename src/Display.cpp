@@ -35,8 +35,8 @@ void Display::showSplashScreen() {
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextDatum(MC_DATUM); // Centre
     M5.Lcd.setTextSize(4);
-    M5.Lcd.drawString("GPS", centerX, centerY - 60);
-    M5.Lcd.drawString("FRA222", centerX, centerY + 0);
+    M5.Lcd.drawString("WIND", centerX, centerY - 60);
+    M5.Lcd.drawString("BOAT", centerX, centerY + 0);
     delay(2000);
     M5.Lcd.fillScreen(BLACK);
 }
@@ -82,21 +82,22 @@ void Display::drawSpeedBar(float speedKnots) {
  * - GPS recording status indicator (green "RECORD" button when active)
  */
 void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive) {
+    // Restorer votre code original ici
     M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
     float speedKnots = boatData.speed * 1.94384;
     float windSpeedKnots = anemometerData.windSpeed * 1.94384;
     uint32_t speedColor = GREEN;
+
     if (speedKnots > 2.0 && speedKnots <= 4.0) {
       speedColor = ORANGE;
     } else if (speedKnots > 4.0) {
       speedColor = RED;
     }
     M5.Lcd.setTextDatum(TL_DATUM);
-    M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextColor(RED);
     M5.Lcd.setTextSize(4);
     M5.Lcd.setCursor(10, 50);
-    M5.Lcd.println("F222");
+    M5.Lcd.println("BOAT");
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextSize(4);
     M5.Lcd.setCursor(140, 50);
@@ -118,7 +119,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     M5.Lcd.setTextColor(RED);
     M5.Lcd.setTextSize(4);
     M5.Lcd.setCursor(10, 150);
-    M5.Lcd.println("BUOY1");
+    M5.Lcd.println("BUOY");
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextSize(4);
     M5.Lcd.setCursor(140, 150);
@@ -215,38 +216,14 @@ void Display::checkButtons(struct_message_display_to_boat& outgoingData, uint8_t
  * Message is displayed in the center of the screen temporarily.
  */
 void Display::showFileServerStatus(bool active, const String& ipAddress) {
-    // Sauvegarder la zone à modifier
-    int messageY = centerY - 30;
-    int messageHeight = 60;
+    // Démarrer l'affichage temporaire non-bloquant
+    showingServerMessage = true;
+    serverMessageStartTime = millis();
+    serverMessageActive = active;
+    serverMessageIP = ipAddress;
     
-    // Afficher le message de statut
-    if (active) {
-        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, GREEN);
-        M5.Lcd.setTextColor(BLACK);
-        M5.Lcd.setTextDatum(MC_DATUM);
-        M5.Lcd.setTextSize(3);
-        M5.Lcd.drawString("SERVEUR ACTIF", centerX, centerY - 10);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.drawString("http://" + ipAddress, centerX, centerY + 15);
-    } else {
-        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, RED);
-        M5.Lcd.setTextColor(WHITE);
-        M5.Lcd.setTextDatum(MC_DATUM);
-        M5.Lcd.setTextSize(3);
-        M5.Lcd.drawString("SERVEUR ARRETE", centerX, centerY - 10);
-        M5.Lcd.setTextSize(2);
-        if (ipAddress != "") {
-            M5.Lcd.drawString(ipAddress, centerX, centerY + 15);
-        } else {
-            M5.Lcd.drawString("Mode normal restaure", centerX, centerY + 15);
-        }
-    }
-    
-    // Afficher le message pendant 3 secondes
-    delay(3000);
-    
-    // Effacer la zone du message
-    M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, BLACK);
+    // Afficher immédiatement le message une première fois
+    updateServerMessageDisplay();
 }
 
 /**
@@ -261,6 +238,21 @@ void Display::showFileServerStatus(bool active, const String& ipAddress) {
  * - Middle area: Reserved/unused
  */
 void Display::drawButtonLabels(bool isRecording, bool isServerActive) {
+    // Debug: Afficher l'état des boutons
+    static bool lastServerActive = false;
+    static bool lastRecording = false;
+    
+    if (isServerActive != lastServerActive || isRecording != lastRecording) {
+        // Utiliser Serial.print pour éviter les dépendances circulaires
+        Serial.print("DEBUG: drawButtonLabels - Recording: ");
+        Serial.print(isRecording ? "TRUE" : "FALSE");
+        Serial.print(", ServerActive: ");
+        Serial.println(isServerActive ? "TRUE" : "FALSE");
+        
+        lastServerActive = isServerActive;
+        lastRecording = isRecording;
+    }
+    
     int buttonY = 200;
     int buttonHeight = 40;
     int button1Width = 107;  // Premier tiers
@@ -286,4 +278,108 @@ void Display::drawButtonLabels(bool isRecording, bool isServerActive) {
     M5.Lcd.setTextDatum(MC_DATUM);
     M5.Lcd.setTextSize(2);
     M5.Lcd.drawString(isServerActive ? "SERV" : "WIFI", button3X + button3Width/2, buttonY + buttonHeight/2);
+}
+
+/**
+ * @brief Affiche un message d'erreur SD au centre de l'écran
+ * 
+ * @param errorMessage Le message d'erreur à afficher
+ * 
+ * Affiche un message d'erreur centré avec un fond rouge pour indiquer
+ * un problème avec la carte SD (manquante, corrompue, etc.)
+ */
+void Display::showSDError(const String& errorMessage) {
+    // Constantes pour le M5Stack Core2 (320x240)
+    const int screenWidth = 320;
+    const int centerX = 160;
+    
+    // Effacer la zone d'affichage principale
+    M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
+    
+    // Fond rouge pour l'erreur
+    M5.Lcd.fillRect(10, 60, screenWidth - 20, 60, RED);
+    M5.Lcd.drawRect(10, 60, screenWidth - 20, 60, WHITE);
+    
+    // Texte d'erreur en blanc
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.setTextDatum(MC_DATUM);
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.drawString("ERREUR SD", centerX, 75);
+    
+    M5.Lcd.setTextSize(1);
+    M5.Lcd.drawString(errorMessage, centerX, 95);
+    
+    // Message d'instruction
+    M5.Lcd.setTextColor(YELLOW);
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.drawString("Insérer carte SD", centerX, 140);
+}
+
+/**
+ * @brief Met à jour l'affichage temporaire du message serveur de manière non-bloquante
+ */
+void Display::updateServerMessageDisplay() {
+    if (!showingServerMessage) return;
+    
+    // Si le serveur est ACTIF, ne jamais effacer le message (affichage permanent)
+    // Si le serveur est INACTIF, effacer après 3 secondes
+    if (!serverMessageActive && millis() - serverMessageStartTime >= 3000) {
+        // Effacer le message et revenir à l'affichage normal
+        showingServerMessage = false;
+        needsRefreshAfterServerMessage = true; // Marquer qu'un refresh est nécessaire
+        
+        // Effacer la zone du message
+        const int screenWidth = 320;
+        const int centerX = 160;
+        const int centerY = 120;
+        int messageY = centerY - 30;
+        int messageHeight = 60;
+        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, BLACK);
+        return;
+    }
+    
+    // Continuer à afficher le message seulement une fois par cycle pour éviter le clignotement
+    static unsigned long lastRedraw = 0;
+    if (millis() - lastRedraw < 100) return; // Redessiner max toutes les 100ms
+    lastRedraw = millis();
+    
+    // Continuer à afficher le message
+    const int screenWidth = 320;
+    const int centerX = 160;
+    const int centerY = 120;
+    int messageY = centerY - 30;
+    int messageHeight = 60;
+    
+    if (serverMessageActive) {
+        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, GREEN);
+        M5.Lcd.setTextColor(BLACK);
+        M5.Lcd.setTextDatum(MC_DATUM);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.drawString("SERVEUR ACTIF", centerX, centerY - 10);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.drawString("http://" + serverMessageIP, centerX, centerY + 15);
+    } else {
+        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, RED);
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextDatum(MC_DATUM);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.drawString("SERVEUR ARRETE", centerX, centerY - 10);
+        M5.Lcd.setTextSize(2);
+        if (serverMessageIP != "") {
+            M5.Lcd.drawString(serverMessageIP, centerX, centerY + 15);
+        } else {
+            M5.Lcd.drawString("Mode normal restaure", centerX, centerY + 15);
+        }
+    }
+}
+
+/**
+ * @brief Vérifie si un refresh de l'affichage est nécessaire après un message serveur
+ */
+bool Display::needsRefresh() {
+    if (needsRefreshAfterServerMessage) {
+        needsRefreshAfterServerMessage = false; // Reset du flag
+        return true;
+    }
+    return false;
 }

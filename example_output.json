@@ -1,0 +1,63 @@
+{
+  "description": "Exemple de format JSON pour les données multi-appareils",
+  "boat_data_example": {
+    "timestamp": 1704096000,
+    "type": 1,
+    "boat": {
+      "messageType": 1,
+      "gpsTimestamp": 1704095999,
+      "latitude": 45.123456,
+      "longitude": 2.654321,
+      "speed": 12.5,
+      "heading": 270.0,
+      "satellites": 8,
+      "isGPSRecording": true
+    }
+  },
+  "anemometer_data_example": {
+    "timestamp": 1704096001,
+    "type": 2,
+    "anemometer": {
+      "messageType": 2,
+      "anemometerId": "AA:BB:CC:DD:EE:FF",
+      "windSpeed": 15.8,
+      "macAddress": [170, 187, 204, 221, 238, 255]
+    }
+  },
+  "multiple_devices_scenario": [
+    {
+      "timestamp": 1704096002,
+      "type": 1,
+      "boat": {
+        "messageType": 1,
+        "gpsTimestamp": 1704096001,
+        "latitude": 45.124000,
+        "longitude": 2.655000,
+        "speed": 13.2,
+        "heading": 275.0,
+        "satellites": 9,
+        "isGPSRecording": true
+      }
+    },
+    {
+      "timestamp": 1704096003,
+      "type": 2,
+      "anemometer": {
+        "messageType": 2,
+        "anemometerId": "AA:BB:CC:DD:EE:FF",
+        "windSpeed": 16.1,
+        "macAddress": [170, 187, 204, 221, 238, 255]
+      }
+    },
+    {
+      "timestamp": 1704096004,
+      "type": 2,
+      "anemometer": {
+        "messageType": 2,
+        "anemometerId": "11:22:33:44:55:66",
+        "windSpeed": 14.7,
+        "macAddress": [17, 34, 51, 68, 85, 102]
+      }
+    }
+  ]
+}
