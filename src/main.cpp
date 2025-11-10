@@ -438,6 +438,11 @@ void reinitializeESPNow() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   
+  // Augmente la puissance TX WiFi pour améliorer la portée ESP-NOW
+  // 19.5 dBm offre un bon compromis portée/consommation (+50-100m de portée)
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  logger.log("Puissance TX réglée à 19.5 dBm");
+  
   // Réinitialiser ESPNow
   if (esp_now_init() != ESP_OK) {
     logger.log("Erreur de réinitialisation ESPNow");
@@ -512,6 +517,11 @@ void setup() {
   
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+  
+  // Augmente la puissance TX WiFi pour améliorer la portée ESP-NOW
+  // 19.5 dBm offre un bon compromis portée/consommation (+50-100m de portée)
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  logger.log("Puissance TX réglée à 19.5 dBm");
 
   logger.enableScreenLogging(false);
 
