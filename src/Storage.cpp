@@ -167,13 +167,14 @@ bool Storage::writeData(const StorageData& data) {
         // Serialize boat data into nested JSON object
         JsonObject boat = doc.createNestedObject("boat");
         boat["messageType"] = data.boatData.messageType;
+        boat["name"] = data.boatData.name;
         boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
         boat["latitude"] = data.boatData.latitude;
         boat["longitude"] = data.boatData.longitude;
         boat["speed"] = data.boatData.speed;
         boat["heading"] = data.boatData.heading;
         boat["satellites"] = data.boatData.satellites;
-        boat["isGPSRecording"] = data.boatData.isGPSRecording;
+        boat["boatId"] = data.boatData.boatId;
     } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
         // Serialize anemometer data into nested JSON object
         JsonObject anemometer = doc.createNestedObject("anemometer");
@@ -233,13 +234,14 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
             // Serialize boat data into nested JSON object
             JsonObject boat = doc.createNestedObject("boat");
             boat["messageType"] = data.boatData.messageType;
+            boat["name"] = data.boatData.name;
             boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
             boat["latitude"] = data.boatData.latitude;
             boat["longitude"] = data.boatData.longitude;
             boat["speed"] = data.boatData.speed;
             boat["heading"] = data.boatData.heading;
             boat["satellites"] = data.boatData.satellites;
-            boat["isGPSRecording"] = data.boatData.isGPSRecording;
+            boat["boatId"] = data.boatData.boatId;
         } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
             // Serialize anemometer data into nested JSON object
             JsonObject anemometer = doc.createNestedObject("anemometer");

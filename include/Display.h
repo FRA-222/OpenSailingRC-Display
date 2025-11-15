@@ -15,15 +15,25 @@ private:
   String serverMessageIP = "";
   bool needsRefreshAfterServerMessage = false; // Flag pour indiquer qu'un refresh est nécessaire
   
+  // Variables statiques pour l'optimisation de l'affichage
+  bool labelsDrawn = false;
+  float lastSpeedKnots = -999;
+  float lastHeading = -999;
+  uint8_t lastSatellites = 255;
+  float lastWindSpeedKnots = -999;
+  bool lastIsRecording = false;
+  bool lastIsServerActive = false;
+  int lastBoatCount = 0;
+  
 public:
   void showSplashScreen();
   void drawSpeedBar(float speedKnots);
-  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false);
+  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0);
   void drawCompass(float heading);
-  void checkButtons(struct_message_display_to_boat& outgoingData, uint8_t* boatAddress, Logger& logger);
   void showFileServerStatus(bool active, const String& ipAddress);
   void updateServerMessageDisplay(); // Nouvelle fonction pour l'affichage non-bloquant
   bool needsRefresh(); // Vérifie si un refresh est nécessaire après message serveur
-  void drawButtonLabels(bool isRecording, bool isServerActive);
+  void drawButtonLabels(bool isRecording, bool isServerActive, int boatCount = 0);
   void showSDError(const String& errorMessage);
+  void forceFullRefresh(); // Force un rafraîchissement complet de l'affichage
 };

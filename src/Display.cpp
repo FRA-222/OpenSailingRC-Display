@@ -24,9 +24,9 @@
 #include "Display.h"
 
 /**
- * @brief Displays the initial splash screen with boat identification
+ * @brief Displays the initial splash screen with project identification
  * 
- * Shows "GPS" and "FRA222" centered on screen for 2 seconds, then clears the display.
+ * Shows "OpenSailingRC Display" and "V1.0" centered on screen for 2 seconds, then clears the display.
  * Uses white text on black background with large font size.
  */
 
@@ -34,9 +34,11 @@ void Display::showSplashScreen() {
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextDatum(MC_DATUM); // Centre
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.drawString("WIND", centerX, centerY - 60);
-    M5.Lcd.drawString("BOAT", centerX, centerY + 0);
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.drawString("OpenSailingRC", centerX, centerY - 80);
+    M5.Lcd.drawString("Display", centerX, centerY - 40);
+    M5.Lcd.setTextSize(3);
+    M5.Lcd.drawString("V1.0", centerX, centerY + 10);
     delay(2000);
     M5.Lcd.fillScreen(BLACK);
 }
@@ -81,56 +83,112 @@ void Display::drawSpeedBar(float speedKnots) {
  * - Wind speed from buoy sensor
  * - GPS recording status indicator (green "RECORD" button when active)
  */
-void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive) {
-    // Restorer votre code original ici
-    M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
+void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount) {
     float speedKnots = boatData.speed * 1.94384;
     float windSpeedKnots = anemometerData.windSpeed * 1.94384;
-    uint32_t speedColor = GREEN;
-
-    if (speedKnots > 2.0 && speedKnots <= 4.0) {
-      speedColor = ORANGE;
-    } else if (speedKnots > 4.0) {
-      speedColor = RED;
-    }
-    M5.Lcd.setTextDatum(TL_DATUM);
-    M5.Lcd.setTextColor(RED);
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setCursor(10, 50);
-    M5.Lcd.println("BOAT");
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setCursor(140, 50);
-    M5.Lcd.printf("%.1f", speedKnots);
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setCursor(240, 50);
-    M5.Lcd.println("KTS");
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setCursor(140, 90);
-    M5.Lcd.printf("%.0f", boatData.heading);
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setCursor(240, 90);
-    M5.Lcd.println("DEG");
-    M5.Lcd.setCursor(240, 10);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(2);
-    M5.Lcd.printf("%d SAT", boatData.satellites);
-    M5.Lcd.setTextColor(RED);
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setCursor(10, 150);
-    M5.Lcd.println("BUOY");
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setCursor(140, 150);
-    M5.Lcd.printf("%.1f", windSpeedKnots);
-    M5.Lcd.setTextSize(4);
-    M5.Lcd.setCursor(240, 150);
-    M5.Lcd.println("KTS");
-    //drawSpeedBar(speedKnots);
     
-    // Dessiner les boutons avec leurs statuts
-    drawButtonLabels(isRecording, isServerActive);
+    // Dessiner les labels fixes une seule fois au démarrage
+    if (!labelsDrawn) {
+        M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
+        
+        M5.Lcd.setTextDatum(TL_DATUM);
+        M5.Lcd.setTextColor(RED);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(10, 50);
+        M5.Lcd.print("BOAT");
+        
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(240, 50);
+        M5.Lcd.print("KTS");
+        
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(240, 90);
+        M5.Lcd.print("DEG");
+        
+        M5.Lcd.setTextColor(RED);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(10, 150);
+        M5.Lcd.print("BUOY");
+        
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(240, 150);
+        M5.Lcd.print("KTS");
+        
+        // Dessiner les boutons au premier affichage
+        drawButtonLabels(isRecording, isServerActive, boatCount);
+        lastIsRecording = isRecording;
+        lastIsServerActive = isServerActive;
+        lastBoatCount = boatCount;
+        
+        labelsDrawn = true;
+    }
+    
+    // Mettre à jour uniquement la vitesse si elle a changé
+    if (abs(speedKnots - lastSpeedKnots) > 0.05) {
+        // Effacer l'ancienne valeur (plus large et plus haut pour éviter les traces)
+        M5.Lcd.fillRect(140, 48, 95, 36, BLACK);
+        
+        // Dessiner la nouvelle valeur (ajout de 5 pixels pour alignement)
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(140, 65);
+        M5.Lcd.printf("%.1f", speedKnots);
+        
+        lastSpeedKnots = speedKnots;
+    }
+    
+    // Mettre à jour uniquement le cap si il a changé
+    if (abs(boatData.heading - lastHeading) > 0.5) {
+        // Effacer l'ancienne valeur (plus large et plus haut pour éviter les traces)
+        M5.Lcd.fillRect(140, 88, 95, 36, BLACK);
+        
+        // Dessiner la nouvelle valeur (ajout de 5 pixels pour alignement)
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(140, 105);
+        M5.Lcd.printf("%.0f", boatData.heading);
+        
+        lastHeading = boatData.heading;
+    }
+    
+    // Mettre à jour uniquement les satellites si le nombre a changé
+    if (boatData.satellites != lastSatellites) {
+        // Effacer l'ancienne valeur
+        M5.Lcd.fillRect(240, 0, 80, 20, BLACK);
+        
+        // Dessiner la nouvelle valeur
+        M5.Lcd.setCursor(240, 10);
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.printf("%d SAT", boatData.satellites);
+        
+        lastSatellites = boatData.satellites;
+    }
+    
+    // Mettre à jour uniquement la vitesse du vent si elle a changé
+    if (abs(windSpeedKnots - lastWindSpeedKnots) > 0.05) {
+        // Effacer l'ancienne valeur (plus large et plus haut pour éviter les traces)
+        M5.Lcd.fillRect(140, 148, 95, 36, BLACK);
+        
+        // Dessiner la nouvelle valeur (ajout de 5 pixels pour alignement)
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextSize(4);
+        M5.Lcd.setCursor(140, 165);
+        M5.Lcd.printf("%.1f", windSpeedKnots);
+        
+        lastWindSpeedKnots = windSpeedKnots;
+    }
+    
+    // Redessiner les boutons uniquement si leur état a changé
+    if (isRecording != lastIsRecording || isServerActive != lastIsServerActive || boatCount != lastBoatCount) {
+        drawButtonLabels(isRecording, isServerActive, boatCount);
+        lastIsRecording = isRecording;
+        lastIsServerActive = isServerActive;
+        lastBoatCount = boatCount;
+    }
 }
 
 /**
@@ -175,37 +233,6 @@ void Display::drawCompass(float heading) {
 
 
 /**
- * @brief Handles touch screen input for GPS recording control
- * 
- * @param outgoingData Reference to data structure sent to boat
- * @param boatAddress ESP-NOW address of the target boat
- * @param logger Reference to logging system for status messages
- * 
- * Touch zones:
- * - Left half of bottom area: Start GPS recording
- * - Right half of bottom area: Stop GPS recording
- * Sends recording commands to boat via ESP-NOW protocol with error handling.
- */
-void Display::checkButtons(struct_message_display_to_boat& outgoingData, uint8_t* boatAddress, Logger& logger) {
-    if (M5.Touch.getCount()) {
-      auto t = M5.Touch.getDetail();
-      if (t.y > 200) {
-        if (t.x < 160) {
-          outgoingData.recordGPS = true;
-        } else {
-          outgoingData.recordGPS = false;
-        }
-        esp_err_t result = esp_now_send(boatAddress, (uint8_t *)&outgoingData, sizeof(outgoingData));
-        if (result == ESP_OK) {
-          logger.log("Données isGPSRecording envoyées au bateau");
-        } else {
-          logger.log("Erreur d'envoi de donnée isGPSRecording envoyées au bateau");
-        }
-      }
-    }
-}
-
-/**
  * @brief Displays File Server status on screen
  * 
  * @param active True if file server is active, false otherwise
@@ -237,7 +264,7 @@ void Display::showFileServerStatus(bool active, const String& ipAddress) {
  * - Right button: File server control (green if active, red if stopped)
  * - Middle area: Reserved/unused
  */
-void Display::drawButtonLabels(bool isRecording, bool isServerActive) {
+void Display::drawButtonLabels(bool isRecording, bool isServerActive, int boatCount) {
     // Debug: Afficher l'état des boutons
     static bool lastServerActive = false;
     static bool lastRecording = false;
@@ -256,7 +283,9 @@ void Display::drawButtonLabels(bool isRecording, bool isServerActive) {
     int buttonY = 200;
     int buttonHeight = 40;
     int button1Width = 107;  // Premier tiers
+    int button2Width = 106;  // Deuxième tiers (107 à 213)
     int button3Width = 107;  // Dernier tiers
+    int button2X = 107;      // Position X du 2ème bouton
     int button3X = 213;      // Position X du 3ème bouton
     
     // Bouton 1 (gauche) - Enregistrement GPS
@@ -267,9 +296,20 @@ void Display::drawButtonLabels(bool isRecording, bool isServerActive) {
     M5.Lcd.setTextSize(2);
     M5.Lcd.drawString(isRecording ? "REC" : "STOP", button1Width/2, buttonY + buttonHeight/2);
     
-    // Zone centrale (grise) - Non utilisée
-    M5.Lcd.fillRect(button1Width, buttonY, button3X - button1Width, buttonHeight, DARKGREY);
-    M5.Lcd.drawRect(button1Width, buttonY, button3X - button1Width, buttonHeight, WHITE);
+    // Bouton 2 (centre) - Sélection bateau
+    if (boatCount > 1) {
+        // Plusieurs bateaux détectés : bouton rouge avec "Boat ?"
+        M5.Lcd.fillRect(button2X, buttonY, button2Width, buttonHeight, RED);
+        M5.Lcd.drawRect(button2X, buttonY, button2Width, buttonHeight, WHITE);
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextDatum(MC_DATUM);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.drawString("BOAT ?", button2X + button2Width/2, buttonY + buttonHeight/2);
+    } else {
+        // Un seul ou aucun bateau : zone grise (non utilisée)
+        M5.Lcd.fillRect(button2X, buttonY, button2Width, buttonHeight, DARKGREY);
+        M5.Lcd.drawRect(button2X, buttonY, button2Width, buttonHeight, WHITE);
+    }
     
     // Bouton 3 (droite) - Serveur de fichiers
     M5.Lcd.fillRect(button3X, buttonY, button3Width, buttonHeight, isServerActive ? GREEN : RED);
@@ -382,4 +422,26 @@ bool Display::needsRefresh() {
         return true;
     }
     return false;
+}
+
+/**
+ * @brief Force un rafraîchissement complet de l'affichage
+ * 
+ * Réinitialise les variables statiques de drawDisplay pour forcer
+ * le redessin complet de tous les éléments à l'écran.
+ * Utile lors du changement de bateau sélectionné.
+ */
+void Display::forceFullRefresh() {
+    // Réinitialiser toutes les variables d'état pour forcer un redessin complet
+    labelsDrawn = false;
+    lastSpeedKnots = -999;
+    lastHeading = -999;
+    lastSatellites = 255;
+    lastWindSpeedKnots = -999;
+    lastIsRecording = false;
+    lastIsServerActive = false;
+    lastBoatCount = 0;
+    
+    // Effacer l'écran
+    M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
 }

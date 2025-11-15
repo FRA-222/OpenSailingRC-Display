@@ -48,6 +48,7 @@
 #include <esp_now.h>
 #include <math.h>
 #include <vector>
+#include <map>
 #include <stddef.h>  // Pour offsetof
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -63,18 +64,21 @@
 struct_message_Boat incomingBoatData;
 struct_message_Anemometer incomingAnemometerData;
 
-// Structure de compatibilité pour bateau sans gpsTimestamp (pour debug)
-typedef struct struct_message_Boat_Legacy {
-    int8_t messageType;  // 1 = Boat, 2 = Anemometer
-    float latitude;
-    float longitude;
-    float speed;     // en m/s
-    float heading;   // en degrés (0=N, 90=E, 180=S, 270=W)
-    uint8_t satellites; // nombre de satellites visibles
-    bool isGPSRecording; // Indique si l'enregistrement GPS est activé
-} struct_message_Boat_Legacy;
 
-struct_message_display_to_boat outgoingData;
+
+// Structure pour gérer plusieurs bateaux
+typedef struct BoatInfo {
+    struct_message_Boat data;
+    uint8_t macAddress[6];
+    unsigned long lastUpdate; // Timestamp de la dernière réception
+    String boatId; // "BOAT1", "BOAT2", etc.
+} BoatInfo;
+
+// Map pour stocker les données de plusieurs bateaux (clé = adresse MAC convertie en String)
+std::map<String, BoatInfo> detectedBoats;
+std::vector<String> boatMacList; // Liste ordonnée des adresses MAC pour navigation
+int selectedBoatIndex = 0; // Index du bateau actuellement sélectionné
+const unsigned long BOAT_TIMEOUT_MS = 30000; // 30 secondes - timeout pour retirer un bateau
 
 // Instances des gestionnaires
 Logger logger;
@@ -107,7 +111,6 @@ void printStructureInfo() {
     logger.log("=== DIAGNOSTIC STRUCTURE ===");
     logger.log("--- BATEAU ---");
     logger.log(String("Taille struct_message_Boat: ") + String(sizeof(struct_message_Boat)) + " bytes");
-    logger.log(String("Taille struct_message_Boat_Legacy: ") + String(sizeof(struct_message_Boat_Legacy)) + " bytes");
     logger.log("--- ANÉMOMÈTRE ---");
     logger.log(String("Taille struct_message_Anemometer: ") + String(sizeof(struct_message_Anemometer)) + " bytes");
     logger.log(String("Taille struct_message_Anemometer_Legacy: ") + String(sizeof(struct_message_Anemometer_Legacy)) + " bytes");
@@ -129,15 +132,6 @@ void printStructureInfo() {
     logger.log(String("Offset speed: ") + String(offsetof(struct_message_Boat, speed)));
     logger.log(String("Offset heading: ") + String(offsetof(struct_message_Boat, heading)));
     logger.log(String("Offset satellites: ") + String(offsetof(struct_message_Boat, satellites)));
-    logger.log(String("Offset isGPSRecording: ") + String(offsetof(struct_message_Boat, isGPSRecording)));
-    logger.log("--- OFFSETS BATEAU LEGACY ---");
-    logger.log(String("Legacy offset messageType: ") + String(offsetof(struct_message_Boat_Legacy, messageType)));
-    logger.log(String("Legacy offset latitude: ") + String(offsetof(struct_message_Boat_Legacy, latitude)));
-    logger.log(String("Legacy offset longitude: ") + String(offsetof(struct_message_Boat_Legacy, longitude)));
-    logger.log(String("Legacy offset speed: ") + String(offsetof(struct_message_Boat_Legacy, speed)));
-    logger.log(String("Legacy offset heading: ") + String(offsetof(struct_message_Boat_Legacy, heading)));
-    logger.log(String("Legacy offset satellites: ") + String(offsetof(struct_message_Boat_Legacy, satellites)));
-    logger.log(String("Legacy offset isGPSRecording: ") + String(offsetof(struct_message_Boat_Legacy, isGPSRecording)));
     logger.log("===============================");
 }
 
@@ -158,7 +152,85 @@ void syncRTCIfWiFiConnected() {
     }
 }
 
+/**
+ * @brief Convertit une adresse MAC en String
+ */
+String macToString(const uint8_t* mac) {
+    String macStr = "";
+    for (int i = 0; i < 6; i++) {
+        if (i > 0) macStr += ":";
+        if (mac[i] < 16) macStr += "0";
+        macStr += String(mac[i], HEX);
+    }
+    macStr.toUpperCase();
+    return macStr;
+}
 
+/**
+ * @brief Nettoie les bateaux qui n'ont pas envoyé de données depuis BOAT_TIMEOUT_MS
+ */
+void cleanupTimedOutBoats() {
+    unsigned long currentTime = millis();
+    std::vector<String> toRemove;
+    
+    for (auto& pair : detectedBoats) {
+        if (currentTime - pair.second.lastUpdate > BOAT_TIMEOUT_MS) {
+            toRemove.push_back(pair.first);
+            logger.log("Bateau timeout: " + pair.second.boatId + " (" + pair.first + ")");
+        }
+    }
+    
+    for (const String& mac : toRemove) {
+        detectedBoats.erase(mac);
+        // Retirer de la liste ordonnée
+        boatMacList.erase(std::remove(boatMacList.begin(), boatMacList.end(), mac), boatMacList.end());
+    }
+    
+    // Ajuster l'index sélectionné si nécessaire
+    if (boatMacList.empty()) {
+        selectedBoatIndex = 0;
+    } else if (selectedBoatIndex >= boatMacList.size()) {
+        selectedBoatIndex = boatMacList.size() - 1;
+    }
+}
+
+/**
+ * @brief Obtient les données du bateau actuellement sélectionné
+ */
+BoatInfo* getSelectedBoat() {
+    cleanupTimedOutBoats();
+    
+    if (boatMacList.empty()) {
+        return nullptr;
+    }
+    
+    String selectedMac = boatMacList[selectedBoatIndex];
+    auto it = detectedBoats.find(selectedMac);
+    if (it != detectedBoats.end()) {
+        return &(it->second);
+    }
+    return nullptr;
+}
+
+/**
+ * @brief Passe au bateau suivant dans la liste
+ */
+void selectNextBoat() {
+    cleanupTimedOutBoats();
+    
+    if (boatMacList.empty()) {
+        logger.log("Aucun bateau détecté");
+        return;
+    }
+    
+    selectedBoatIndex = (selectedBoatIndex + 1) % boatMacList.size();
+    BoatInfo* boat = getSelectedBoat();
+    if (boat) {
+        logger.log("Bateau sélectionné: " + boat->boatId + " (" + macToString(boat->macAddress) + ")");
+        display.forceFullRefresh(); // Force un rafraîchissement complet pour le nouveau bateau
+        newData = true; // Force le rafraîchissement de l'affichage
+    }
+}
 
 /**
  * @brief Fonction de rappel déclenchée après l'envoi d'un message ESP-NOW.
@@ -205,35 +277,16 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
 
   switch (messageType)
   {
-  case 1: // GPS Boat
+  case 1: { // GPS Boat
 
-    // Tester d'abord avec la structure legacy si la taille correspond
-    if (len == sizeof(struct_message_Boat_Legacy)) {
-        logger.log("*** UTILISATION STRUCTURE LEGACY ***");
-        struct_message_Boat_Legacy legacyData;
-        memcpy(&legacyData, incomingDataPtr, sizeof(legacyData));
-        
-        // Copier dans la structure actuelle avec des valeurs par défaut
-        incomingBoatData.messageType = legacyData.messageType;
-        incomingBoatData.gpsTimestamp = 0; // Pas de timestamp GPS disponible
-        incomingBoatData.latitude = legacyData.latitude;
-        incomingBoatData.longitude = legacyData.longitude;
-        incomingBoatData.speed = legacyData.speed;
-        incomingBoatData.heading = legacyData.heading;
-        incomingBoatData.satellites = legacyData.satellites;
-        incomingBoatData.isGPSRecording = legacyData.isGPSRecording;
-        
-        logger.log("=== DONNÉES BATEAU (LEGACY) ===");
-        logger.log(String("Speed (legacy): ") + String(legacyData.speed, 2) + " m/s");
-    } else if (len == sizeof(struct_message_Boat)) {
-        logger.log("*** UTILISATION STRUCTURE ACTUELLE ***");
+    // Vérifier la taille du message
+    if (len == sizeof(struct_message_Boat)) {
         memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
     } else {
         logger.log("*** TAILLE INATTENDUE ***");
         logger.log(String("Reçu: ") + String(len) + " bytes");
-        logger.log(String("Attendu actuel: ") + String(sizeof(struct_message_Boat)) + " bytes");
-        logger.log(String("Attendu legacy: ") + String(sizeof(struct_message_Boat_Legacy)) + " bytes");
-        // Essayer quand même avec la structure actuelle
+        logger.log(String("Attendu: ") + String(sizeof(struct_message_Boat)) + " bytes");
+        // Essayer quand même avec la taille minimale
         memcpy(&incomingBoatData, incomingDataPtr, min(len, (int)sizeof(incomingBoatData)));
     }
 
@@ -241,14 +294,38 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     logger.log(String("Taille reçue: ") + String(len) + " bytes");
     logger.log(String("Taille structure: ") + String(sizeof(incomingBoatData)) + " bytes");
     logger.log(String("Message Type: ") + String(incomingBoatData.messageType));
+    logger.log(String("Boat ID: ") + String(incomingBoatData.boatId));
     logger.log(String("GPS Timestamp: ") + String(incomingBoatData.gpsTimestamp));
     logger.log(String("Latitude: ") + String(incomingBoatData.latitude, 6));
     logger.log(String("Longitude: ") + String(incomingBoatData.longitude, 6));
-    logger.log(String("Speed: ") + String(incomingBoatData.speed, 2) + " m/s");
+    logger.log(String("Speed: ") + String(incomingBoatData.speed, 2) + " knots");
     logger.log(String("Heading: ") + String(incomingBoatData.heading, 1) + "°");
     logger.log(String("Satellites: ") + String(incomingBoatData.satellites));
-    logger.log(String("GPS Recording: ") + String(incomingBoatData.isGPSRecording ? "true" : "false"));
     logger.log(String("=============================="));
+    
+    // Stocker les données du bateau dans la map multi-bateaux
+    String macStr = macToString(mac);
+    logger.log("MAC émetteur: " + macStr);
+    
+    // Vérifier si c'est un nouveau bateau
+    bool isNewBoat = (detectedBoats.find(macStr) == detectedBoats.end());
+    
+    if (isNewBoat) {
+        // Ajouter à la liste ordonnée
+        boatMacList.push_back(macStr);
+        logger.log("Nouveau bateau détecté! Total: " + String(boatMacList.size()));
+    }
+    
+    // Mettre à jour ou créer l'entrée du bateau
+    BoatInfo& boat = detectedBoats[macStr];
+    boat.data = incomingBoatData;
+    memcpy(boat.macAddress, mac, 6);
+    boat.lastUpdate = millis();
+    boat.boatId = (boatMacList.size() > 1 ? 
+                   std::find(boatMacList.begin(), boatMacList.end(), macStr) - boatMacList.begin() + 1 : 
+                   1);
+    
+    logger.log("Bateau enregistré: " + String(boat.boatId));
     newData = true;
 
     // Ajouter les données du bateau à la queue pour stockage
@@ -272,8 +349,9 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
       }
     }
     break;
+  } // Fin case 1
 
-  case 2: // Anemometer
+  case 2: { // Anemometer
 
     // Diagnostic similaire au bateau
     logger.log("=== ANÉMOMÈTRE - DONNÉES BRUTES ===");
@@ -374,7 +452,8 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     }
     
     break;
-  }
+  } // Fin case 2
+  } // Fin switch
 }
 
 
@@ -642,7 +721,7 @@ void loop() {
     }
     // Afficher les données malgré l'erreur SD si on a des données
     if (millis() % 5000 < 100) { // Toutes les 5 secondes pendant 100ms
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
       delay(100);
       display.showSDError("Toucher écran pour réessayer");
     }
@@ -677,7 +756,7 @@ void loop() {
         // L'affichage sera rafraîchi automatiquement dans la boucle principale
       }
       
-      // Bouton 2 (centre) - Réservé pour usage futur
+      // Bouton 2 (centre) - Sélection du bateau
       else if (t.x >= 107 && t.x <= 213) {  // Deuxième tiers (107-213px)
         // Vérifier le debouncing pour ce bouton spécifique
         if (currentTime - lastTouchTimeButton2 < TOUCH_DEBOUNCE_MS) {
@@ -686,8 +765,8 @@ void loop() {
         }
         lastTouchTimeButton2 = currentTime;
         
-        logger.log("Bouton central pressé (non assigné)");
-        // Fonctionnalité future
+        logger.log("Bouton sélection bateau pressé");
+        selectNextBoat();
       }
       
       // Bouton 3 (droite) - Gestion serveur de fichiers
@@ -716,7 +795,7 @@ void loop() {
             syncRTCIfWiFiConnected();
             
             // Redessiner les boutons pour afficher le bouton WiFi en VERT
-            display.drawButtonLabels(isRecording, true);
+            display.drawButtonLabels(isRecording, true, boatMacList.size());
             
             // L'affichage sera rafraîchi automatiquement après le message
           } else {
@@ -737,7 +816,7 @@ void loop() {
             reinitializeESPNow();
             
             // Redessiner les boutons pour afficher le bouton WiFi en ROUGE
-            display.drawButtonLabels(isRecording, false);
+            display.drawButtonLabels(isRecording, false, boatMacList.size());
             
             // L'affichage sera rafraîchi automatiquement après le message
           }
@@ -758,14 +837,48 @@ void loop() {
   // MAIS ne pas rafraîchir si le serveur est actif (on veut garder l'URL affichée)
   if (display.needsRefresh() && !fileServer.isServerActive()) {
     logger.log("Refresh automatique après message serveur");
-    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
   }
  
+  // Nettoyer les bateaux avec timeout
+  static unsigned long lastCleanup = 0;
+  if (millis() - lastCleanup > 5000) { // Vérifier toutes les 5 secondes
+    cleanupTimedOutBoats();
+    lastCleanup = millis();
+  }
+  
+  // Obtenir le bateau actuellement sélectionné
+  BoatInfo* selectedBoat = getSelectedBoat();
+  
+  // Copier les données du bateau sélectionné dans incomingBoatData pour compatibilité
+  if (selectedBoat != nullptr) {
+    incomingBoatData = selectedBoat->data;
+  }
+  
   // Ne pas rafraîchir l'affichage si le serveur de fichiers est actif
   // pour garder l'URL visible à l'écran
   if (!fileServer.isServerActive()) {
     if (newData) {
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
+      
+      // Afficher l'identifiant du bateau sélectionné sur l'écran
+      if (selectedBoat != nullptr) {
+        M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.setCursor(10, 10);
+        M5.Lcd.print(selectedBoat->boatId);
+        M5.Lcd.print(" (");
+        M5.Lcd.print(selectedBoatIndex + 1);
+        M5.Lcd.print("/");
+        M5.Lcd.print(boatMacList.size());
+        M5.Lcd.print(")");
+      } else {
+        M5.Lcd.setTextColor(TFT_RED, TFT_BLACK);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.setCursor(10, 10);
+        M5.Lcd.print("NO BOAT  ");
+      }
+      
       newData = false;
     }
     
@@ -782,7 +895,20 @@ void loop() {
         lastServerState = currentServerState;
       }
       
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive());
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
+      
+      // Afficher l'identifiant du bateau
+      if (selectedBoat != nullptr) {
+        M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.setCursor(10, 10);
+        M5.Lcd.print(selectedBoat->boatId);
+        M5.Lcd.print(" (");
+        M5.Lcd.print(selectedBoatIndex + 1);
+        M5.Lcd.print("/");
+        M5.Lcd.print(boatMacList.size());
+        M5.Lcd.print(")");
+      }
     }
   } else {
     // Serveur actif : consommer le flag newData mais ne pas rafraîchir l'écran
