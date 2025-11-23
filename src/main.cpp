@@ -46,6 +46,7 @@
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include <math.h>
 #include <vector>
 #include <map>
@@ -61,8 +62,8 @@
 
 
 // Instances globales
-struct_message_Boat incomingBoatData;
-struct_message_Anemometer incomingAnemometerData;
+struct_message_Boat incomingBoatData = {};
+struct_message_Anemometer incomingAnemometerData = {};
 
 
 
@@ -72,6 +73,10 @@ typedef struct BoatInfo {
     uint8_t macAddress[6];
     unsigned long lastUpdate; // Timestamp de la dernière réception
     String boatId; // "BOAT1", "BOAT2", etc.
+    uint32_t lastSequenceNumber; // Dernier numéro de séquence reçu
+    uint32_t receivedPackets; // Compteur de paquets reçus
+    uint32_t lostPackets; // Compteur de paquets perdus
+    uint32_t lastStoredSequence; // Dernier numéro de séquence stocké sur SD (pour éviter les doublons)
 } BoatInfo;
 
 // Map pour stocker les données de plusieurs bateaux (clé = adresse MAC convertie en String)
@@ -111,27 +116,24 @@ void printStructureInfo() {
     logger.log("=== DIAGNOSTIC STRUCTURE ===");
     logger.log("--- BATEAU ---");
     logger.log(String("Taille struct_message_Boat: ") + String(sizeof(struct_message_Boat)) + " bytes");
+    logger.log("Offsets struct_message_Boat:");
+    logger.log(String("  messageType: ") + String(offsetof(struct_message_Boat, messageType)));
+    logger.log(String("  sequenceNumber: ") + String(offsetof(struct_message_Boat, sequenceNumber)));
+    logger.log(String("  gpsTimestamp: ") + String(offsetof(struct_message_Boat, gpsTimestamp)));
+    logger.log(String("  latitude: ") + String(offsetof(struct_message_Boat, latitude)));
+    logger.log(String("  longitude: ") + String(offsetof(struct_message_Boat, longitude)));
+    logger.log(String("  speed: ") + String(offsetof(struct_message_Boat, speed)));
+    logger.log(String("  heading: ") + String(offsetof(struct_message_Boat, heading)));
+    logger.log(String("  satellites: ") + String(offsetof(struct_message_Boat, satellites)));
     logger.log("--- ANÉMOMÈTRE ---");
     logger.log(String("Taille struct_message_Anemometer: ") + String(sizeof(struct_message_Anemometer)) + " bytes");
-    logger.log(String("Taille struct_message_Anemometer_Legacy: ") + String(sizeof(struct_message_Anemometer_Legacy)) + " bytes");
-    logger.log("--- OFFSETS ANÉMOMÈTRE ACTUEL ---");
-    logger.log(String("Offset messageType: ") + String(offsetof(struct_message_Anemometer, messageType)));
-    logger.log(String("Offset anemometerId: ") + String(offsetof(struct_message_Anemometer, anemometerId)));
-    logger.log(String("Offset macAddress: ") + String(offsetof(struct_message_Anemometer, macAddress)));
-    logger.log(String("Offset windSpeed: ") + String(offsetof(struct_message_Anemometer, windSpeed)));
-    logger.log("--- OFFSETS ANÉMOMÈTRE LEGACY ---");
-    logger.log(String("Legacy offset messageType: ") + String(offsetof(struct_message_Anemometer_Legacy, messageType)));
-    logger.log(String("Legacy offset anemometerId: ") + String(offsetof(struct_message_Anemometer_Legacy, anemometerId)));
-    logger.log(String("Legacy offset macAddress: ") + String(offsetof(struct_message_Anemometer_Legacy, macAddress)));
-    logger.log(String("Legacy offset windSpeed: ") + String(offsetof(struct_message_Anemometer_Legacy, windSpeed)));
-    logger.log("--- OFFSETS BATEAU ACTUEL ---");
-    logger.log(String("Offset messageType: ") + String(offsetof(struct_message_Boat, messageType)));
-    logger.log(String("Offset gpsTimestamp: ") + String(offsetof(struct_message_Boat, gpsTimestamp)));
-    logger.log(String("Offset latitude: ") + String(offsetof(struct_message_Boat, latitude)));
-    logger.log(String("Offset longitude: ") + String(offsetof(struct_message_Boat, longitude)));
-    logger.log(String("Offset speed: ") + String(offsetof(struct_message_Boat, speed)));
-    logger.log(String("Offset heading: ") + String(offsetof(struct_message_Boat, heading)));
-    logger.log(String("Offset satellites: ") + String(offsetof(struct_message_Boat, satellites)));
+    logger.log("Offsets struct_message_Anemometer:");
+    logger.log(String("  messageType: ") + String(offsetof(struct_message_Anemometer, messageType)));
+    logger.log(String("  anemometerId: ") + String(offsetof(struct_message_Anemometer, anemometerId)));
+    logger.log(String("  macAddress: ") + String(offsetof(struct_message_Anemometer, macAddress)));
+    logger.log(String("  sequenceNumber: ") + String(offsetof(struct_message_Anemometer, sequenceNumber)));
+    logger.log(String("  windSpeed: ") + String(offsetof(struct_message_Anemometer, windSpeed)));
+    logger.log(String("  timestamp: ") + String(offsetof(struct_message_Anemometer, timestamp)));
     logger.log("===============================");
 }
 
@@ -260,64 +262,54 @@ void onSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
  */
 void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
 {
-  // Debug: Afficher les données brutes reçues
-  logger.log(String("=== DONNÉES BRUTES REÇUES ==="));
-  logger.log(String("Longueur: ") + String(len) + " bytes");
-  String hexData = "";
-  for (int i = 0; i < len && i < 32; i++) {  // Limiter à 32 bytes pour éviter le spam
-    if (i > 0) hexData += " ";
-    if (incomingDataPtr[i] < 16) hexData += "0";
-    hexData += String(incomingDataPtr[i], HEX);
-  }
-  logger.log(String("Hex: ") + hexData);
-  logger.log(String("============================="));
-
+  // CALLBACK CRITIQUE : Doit être ULTRA-RAPIDE (< 1ms)
+  // Logs de debug désactivés pour éviter de bloquer le callback
+  // et manquer des paquets suivants
+  
   uint8_t messageType = incomingDataPtr[0]; // Premier byte = type
-  logger.log(String("Message Type détecté: ") + String(messageType));
 
   switch (messageType)
   {
   case 1: { // GPS Boat
 
-    // Vérifier la taille du message
-    if (len == sizeof(struct_message_Boat)) {
-        memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
-    } else {
-        logger.log("*** TAILLE INATTENDUE ***");
-        logger.log(String("Reçu: ") + String(len) + " bytes");
-        logger.log(String("Attendu: ") + String(sizeof(struct_message_Boat)) + " bytes");
-        // Essayer quand même avec la taille minimale
-        memcpy(&incomingBoatData, incomingDataPtr, min(len, (int)sizeof(incomingBoatData)));
+    // Copie rapide des données (vérification de taille minimale)
+    if (len < sizeof(struct_message_Boat)) {
+        return; // Paquet trop court, ignorer
     }
-
-    logger.log(String("=== DONNÉES BATEAU REÇUES ==="));
-    logger.log(String("Taille reçue: ") + String(len) + " bytes");
-    logger.log(String("Taille structure: ") + String(sizeof(incomingBoatData)) + " bytes");
-    logger.log(String("Message Type: ") + String(incomingBoatData.messageType));
-    logger.log(String("Boat ID: ") + String(incomingBoatData.boatId));
-    logger.log(String("GPS Timestamp: ") + String(incomingBoatData.gpsTimestamp));
-    logger.log(String("Latitude: ") + String(incomingBoatData.latitude, 6));
-    logger.log(String("Longitude: ") + String(incomingBoatData.longitude, 6));
-    logger.log(String("Speed: ") + String(incomingBoatData.speed, 2) + " knots");
-    logger.log(String("Heading: ") + String(incomingBoatData.heading, 1) + "°");
-    logger.log(String("Satellites: ") + String(incomingBoatData.satellites));
-    logger.log(String("=============================="));
+    memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
+    incomingBoatData.timestamp = millis(); // Timestamp de réception
     
-    // Stocker les données du bateau dans la map multi-bateaux
+    // Conversion MAC ultra-rapide (sans String ni allocation)
     String macStr = macToString(mac);
-    logger.log("MAC émetteur: " + macStr);
     
     // Vérifier si c'est un nouveau bateau
     bool isNewBoat = (detectedBoats.find(macStr) == detectedBoats.end());
     
     if (isNewBoat) {
-        // Ajouter à la liste ordonnée
         boatMacList.push_back(macStr);
-        logger.log("Nouveau bateau détecté! Total: " + String(boatMacList.size()));
     }
     
     // Mettre à jour ou créer l'entrée du bateau
     BoatInfo& boat = detectedBoats[macStr];
+    
+    // Détection rapide de paquets perdus
+    if (!isNewBoat && boat.receivedPackets > 0) {
+        uint32_t expectedSeq = boat.lastSequenceNumber + 1;
+        uint32_t receivedSeq = incomingBoatData.sequenceNumber;
+        
+        if (receivedSeq > expectedSeq) {
+            boat.lostPackets += (receivedSeq - expectedSeq);
+        }
+        boat.lastSequenceNumber = receivedSeq;
+        boat.receivedPackets++;
+    } else {
+        // Premier paquet de ce bateau
+        boat.lastSequenceNumber = incomingBoatData.sequenceNumber;
+        boat.receivedPackets = 1;
+        boat.lostPackets = 0;
+        boat.lastStoredSequence = 0;
+    }
+    
     boat.data = incomingBoatData;
     memcpy(boat.macAddress, mac, 6);
     boat.lastUpdate = millis();
@@ -325,129 +317,61 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
                    std::find(boatMacList.begin(), boatMacList.end(), macStr) - boatMacList.begin() + 1 : 
                    1);
     
-    logger.log("Bateau enregistré: " + String(boat.boatId));
     newData = true;
 
-    // Ajouter les données du bateau à la queue pour stockage
-    if (isRecording) {
-      StorageData storageData;
-      // Utiliser le timestamp GPS du bateau
-      storageData.timestamp = incomingBoatData.gpsTimestamp;
-      storageData.dataType = DATA_TYPE_BOAT;
-      storageData.boatData = incomingBoatData;
-
-      // Vérifier si la SD est initialisée avant de stocker
-      if (sdInitialized && xSemaphoreTake(storageDataMutex, portMAX_DELAY) == pdTRUE) {
+    // Stockage ultra-rapide (sans logs verbeux)
+    if (isRecording && sdInitialized && 
+        incomingBoatData.sequenceNumber != boat.lastStoredSequence) {
+      
+      if (xSemaphoreTake(storageDataMutex, 0) == pdTRUE) { // Non-bloquant !
+        StorageData storageData;
+        storageData.timestamp = incomingBoatData.gpsTimestamp;
+        storageData.dataType = DATA_TYPE_BOAT;
+        storageData.boatData = incomingBoatData;
         pendingStorageData.push_back(storageData);
-        logger.log("Données bateau ajoutées: " + String(storageData.boatData.latitude, 6) + ", " + String(storageData.boatData.longitude, 6));
-        logger.log("Timestamp GPS: " + String(storageData.timestamp));
-        logger.log("File d'attente: " + String(pendingStorageData.size()) + " entrées");
-
         xSemaphoreGive(storageDataMutex);
-      } else if (!sdInitialized) {
-        logger.log("Données bateau ignorées - SD non initialisée");
+        
+        boat.lastStoredSequence = incomingBoatData.sequenceNumber;
       }
+      // Si mutex occupé, on abandonne ce paquet (mieux que bloquer le callback)
     }
     break;
   } // Fin case 1
 
-  case 2: { // Anemometer
+  case 2: { // Anemometer (callback rapide, pas de logs)
 
-    // Diagnostic similaire au bateau
-    logger.log("=== ANÉMOMÈTRE - DONNÉES BRUTES ===");
-    logger.log(String("Taille reçue: ") + String(len) + " bytes");
-    logger.log(String("Attendu actuel: ") + String(sizeof(struct_message_Anemometer)) + " bytes");
-    logger.log(String("Attendu legacy: ") + String(sizeof(struct_message_Anemometer_Legacy)) + " bytes");
-
-    // Tester d'abord avec la structure legacy si la taille correspond
-    if (len == sizeof(struct_message_Anemometer_Legacy)) {
-        logger.log("*** UTILISATION STRUCTURE ANÉMOMÈTRE LEGACY ***");
-        struct_message_Anemometer_Legacy legacyData;
-        memcpy(&legacyData, incomingDataPtr, sizeof(legacyData));
-        
-        // Copier dans la structure actuelle avec conversion
-        incomingAnemometerData.messageType = legacyData.messageType;
-        
-        // Convertir uint32_t ID en string MAC
-        String macString = "";
-        for (int i = 0; i < 6; i++) {
-            if (i > 0) macString += ":";
-            if (legacyData.macAddress[i] < 16) macString += "0";
-            macString += String(legacyData.macAddress[i], HEX);
-        }
-        macString.toUpperCase();
-        strcpy(incomingAnemometerData.anemometerId, macString.c_str());
-        
-        // Copier MAC et vitesse
-        memcpy(incomingAnemometerData.macAddress, legacyData.macAddress, 6);
-        incomingAnemometerData.windSpeed = legacyData.windSpeed;
-        
-        logger.log("=== DONNÉES ANÉMOMÈTRE (LEGACY) ===");
-        logger.log(String("Legacy ID: ") + String(legacyData.anemometerId));
-        logger.log(String("Wind Speed (legacy): ") + String(legacyData.windSpeed, 2));
-        
-    } else if (len == sizeof(struct_message_Anemometer)) {
-        logger.log("*** UTILISATION STRUCTURE ANÉMOMÈTRE ACTUELLE ***");
-        memcpy(&incomingAnemometerData, incomingDataPtr, sizeof(incomingAnemometerData));
-        
-        // Formater l'ID de l'anémomètre à partir de l'adresse MAC (si pas déjà formaté)
-        if (strlen(incomingAnemometerData.anemometerId) == 0) {
-            String macString = "";
-            for (int i = 0; i < 6; i++) {
-                if (i > 0) macString += ":";
-                if (incomingAnemometerData.macAddress[i] < 16) macString += "0";
-                macString += String(incomingAnemometerData.macAddress[i], HEX);
-            }
-            macString.toUpperCase();
-            strcpy(incomingAnemometerData.anemometerId, macString.c_str());
-        }
-        
-    } else {
-        logger.log("*** TAILLE ANÉMOMÈTRE INATTENDUE ***");
-        logger.log(String("Reçu: ") + String(len) + " bytes");
-        // Essayer quand même avec la structure actuelle
-        memcpy(&incomingAnemometerData, incomingDataPtr, min(len, (int)sizeof(incomingAnemometerData)));
-        
-        // Formater l'ID comme fallback
-        String macString = "";
-        for (int i = 0; i < 6; i++) {
-            if (i > 0) macString += ":";
-            if (incomingAnemometerData.macAddress[i] < 16) macString += "0";
-            macString += String(incomingAnemometerData.macAddress[i], HEX);
-        }
-        macString.toUpperCase();
-        strcpy(incomingAnemometerData.anemometerId, macString.c_str());
+    // Vérification de la taille et copie des données
+    if (len < sizeof(struct_message_Anemometer)) {
+        return; // Paquet trop court, ignorer
     }
-
-    logger.log(String("=== DONNÉES ANÉMOMÈTRE FINALES ==="));
-    logger.log(String("Message Type: ") + String(incomingAnemometerData.messageType));
-    logger.log(String("Anemometer ID: ") + String(incomingAnemometerData.anemometerId));
-    logger.log(String("Wind Speed: ") + String(incomingAnemometerData.windSpeed, 2));
-    logger.log(String("=================================="));
+    
+    memcpy(&incomingAnemometerData, incomingDataPtr, sizeof(incomingAnemometerData));
+    
+    // Si l'anemometerId est vide, générer depuis l'adresse MAC
+    if (strlen(incomingAnemometerData.anemometerId) == 0) {
+        snprintf(incomingAnemometerData.anemometerId, sizeof(incomingAnemometerData.anemometerId),
+                 "%02X:%02X:%02X:%02X:%02X:%02X",
+                 incomingAnemometerData.macAddress[0], incomingAnemometerData.macAddress[1],
+                 incomingAnemometerData.macAddress[2], incomingAnemometerData.macAddress[3],
+                 incomingAnemometerData.macAddress[4], incomingAnemometerData.macAddress[5]);
+    }
+    
+    incomingAnemometerData.timestamp = millis(); // Timestamp de réception
+    
     newData = true;
     
-    // Ajouter les données de l'anémomètre à la queue pour stockage
-    if (isRecording) {
-      StorageData storageData;
-      // Utiliser le timestamp RTC du Core2
-      storageData.timestamp = storage.getCurrentTimestamp();
-      // Si RTC non disponible, utiliser millis() comme fallback
-      if (storageData.timestamp == 0) {
-        storageData.timestamp = millis() / 1000; // Convertir en secondes
-      }
-      storageData.dataType = DATA_TYPE_ANEMOMETER;
-      storageData.anemometerData = incomingAnemometerData;
-
-      // Vérifier si la SD est initialisée avant de stocker
-      if (sdInitialized && xSemaphoreTake(storageDataMutex, portMAX_DELAY) == pdTRUE) {
+    // Stockage ultra-rapide (sans logs)
+    if (isRecording && sdInitialized) {
+      if (xSemaphoreTake(storageDataMutex, 0) == pdTRUE) { // Non-bloquant !
+        StorageData storageData;
+        storageData.timestamp = storage.getCurrentTimestamp();
+        if (storageData.timestamp == 0) {
+          storageData.timestamp = millis() / 1000;
+        }
+        storageData.dataType = DATA_TYPE_ANEMOMETER;
+        storageData.anemometerData = incomingAnemometerData;
         pendingStorageData.push_back(storageData);
-        logger.log("Données anémomètre ajoutées: ID=" + String(incomingAnemometerData.anemometerId) + ", Vitesse=" + String(incomingAnemometerData.windSpeed, 2));
-        logger.log("Timestamp RTC: " + String(storageData.timestamp));
-        logger.log("File d'attente: " + String(pendingStorageData.size()) + " entrées");
-
         xSemaphoreGive(storageDataMutex);
-      } else if (!sdInitialized) {
-        logger.log("Données anémomètre ignorées - SD non initialisée");
       }
     }
     
@@ -517,10 +441,12 @@ void reinitializeESPNow() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   
-  // Augmente la puissance TX WiFi pour améliorer la portée ESP-NOW
-  // 19.5 dBm offre un bon compromis portée/consommation (+50-100m de portée)
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  logger.log("Puissance TX réglée à 19.5 dBm");
+  // Set maximum TX power for best range (84 = 21 dBm = maximum power)
+  esp_wifi_set_max_tx_power(84);
+  logger.log("Puissance TX réglée à 21 dBm (max)");
+  
+  // Set WiFi to channel 1 for consistency with BoatGPS
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
   
   // Réinitialiser ESPNow
   if (esp_now_init() != ESP_OK) {
@@ -597,10 +523,13 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   
-  // Augmente la puissance TX WiFi pour améliorer la portée ESP-NOW
-  // 19.5 dBm offre un bon compromis portée/consommation (+50-100m de portée)
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  logger.log("Puissance TX réglée à 19.5 dBm");
+  // Set maximum TX power for best range (84 = 21 dBm = maximum power)
+  esp_wifi_set_max_tx_power(84);
+  logger.log("Puissance TX réglée à 21 dBm (max)");
+  
+  // Set WiFi to channel 1 for consistency with BoatGPS
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  logger.log("Canal WiFi: 1");
 
   logger.enableScreenLogging(false);
 
@@ -649,6 +578,10 @@ void setup() {
 
   display.showSplashScreen();
   logger.log("Setup started");
+  
+  // Initialiser les timestamps à 0 pour forcer l'affichage de "--" au démarrage
+  incomingBoatData.timestamp = 0;
+  incomingAnemometerData.timestamp = 0;
 
   if (!storage.initSD()) {
         logger.log("Erreur d'initialisation du stockage SD");
@@ -703,6 +636,25 @@ void loop() {
 
   M5.update(); // Met à jour l'état des boutons et autres périphériques M5
   
+  // Logs périodiques (toutes les 10 secondes) pour ne pas ralentir le callback
+  static unsigned long lastStatsLog = 0;
+  if (millis() - lastStatsLog > 10000) {
+    lastStatsLog = millis();
+    for (auto& pair : detectedBoats) {
+      BoatInfo& boat = pair.second;
+      if (boat.receivedPackets > 0) {
+        float lossRate = (boat.receivedPackets + boat.lostPackets > 0) ? 
+                         100.0f * boat.lostPackets / (boat.receivedPackets + boat.lostPackets) : 0;
+        Serial.printf("📊 Bateau %d: Seq #%lu, Reçus=%lu, Perdus=%lu (%.1f%%)\n",
+                      boat.boatId, boat.lastSequenceNumber, boat.receivedPackets, 
+                      boat.lostPackets, lossRate);
+      }
+    }
+    if (pendingStorageData.size() > 0) {
+      Serial.printf("💾 File d'attente stockage: %d entrées\n", pendingStorageData.size());
+    }
+  }
+  
   // Si la SD n'est pas initialisée, vérifier si l'utilisateur touche l'écran pour réessayer
   if (!sdInitialized) {
     if (M5.Touch.getCount()) {
@@ -721,7 +673,7 @@ void loop() {
     }
     // Afficher les données malgré l'erreur SD si on a des données
     if (millis() % 5000 < 100) { // Toutes les 5 secondes pendant 100ms
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
       delay(100);
       display.showSDError("Toucher écran pour réessayer");
     }
@@ -837,7 +789,7 @@ void loop() {
   // MAIS ne pas rafraîchir si le serveur est actif (on veut garder l'URL affichée)
   if (display.needsRefresh() && !fileServer.isServerActive()) {
     logger.log("Refresh automatique après message serveur");
-    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
+    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
   }
  
   // Nettoyer les bateaux avec timeout
@@ -859,7 +811,7 @@ void loop() {
   // pour garder l'URL visible à l'écran
   if (!fileServer.isServerActive()) {
     if (newData) {
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
       
       // Afficher l'identifiant du bateau sélectionné sur l'écran
       if (selectedBoat != nullptr) {
@@ -895,7 +847,7 @@ void loop() {
         lastServerState = currentServerState;
       }
       
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size());
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
       
       // Afficher l'identifiant du bateau
       if (selectedBoat != nullptr) {

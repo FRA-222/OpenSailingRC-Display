@@ -3,24 +3,33 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Platform: ESP32](https://img.shields.io/badge/Platform-ESP32-green.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Hardware: M5Stack Core2](https://img.shields.io/badge/Hardware-M5Stack%20Core2-orange.svg)](https://shop.m5stack.com/products/m5stack-core2-esp32-iot-development-kit)
+[![Version](https://img.shields.io/badge/Version-1.0.3-brightgreen.svg)](https://github.com/FRA-222/Boat-GPS-Display/releases)
 
-Un système d'affichage GPS pour télécommande de voilier RC basé sur un M5Stack Core2. Ce projet fait partie de l'écosystème [OpenSailingRC](https://github.com/FRA-222) et affiche en temps réel les données GPS d'un voilier RC.
+Un système d'affichage GPS et anémométrique pour télécommande de voilier RC basé sur un M5Stack Core2. Ce projet fait partie de l'écosystème [OpenSailingRC](https://github.com/FRA-222) et affiche en temps réel les données de navigation (bateau et vent) via ESP-NOW.
+
+> 🎉 **Version 1.0.3** - Nouvelle interface 4 lignes avec système de timeout intelligent
 
 ## 🎯 Caractéristiques
 
-### 📊 Affichage des données GPS
-- **Vitesse** : Affichage en nœuds avec barre colorée progressive
-  - Vert : < 2 nœuds (navigation lente)
-  - Orange : 2-4 nœuds (navigation normale)
-  - Rouge : > 4 nœuds (navigation rapide)
-- **Cap** : Rose des vents avec aiguille mobile indiquant la direction
-- **Satellites** : Nombre de satellites GPS visibles
-- **Position** : Latitude et longitude (optionnel)
+### 📊 Affichage 4 lignes (v1.0.3)
+Interface compacte et lisible affichant toutes les données essentielles :
+- **Ligne 1 - BOAT Speed** : Vitesse du bateau en nœuds
+- **Ligne 2 - BOAT Heading** : Cap du bateau en degrés (0-360°)
+- **Ligne 3 - WIND Speed** : Vitesse du vent en nœuds
+- **Ligne 4 - WIND Direction** : Direction du vent en degrés (prévu pour bouées GPS)
+
+### ⏱️ Système de timeout intelligent
+- **Détection automatique** : Affiche `--` après 5 secondes sans données
+- **Indication visuelle** : Identifie immédiatement les pertes de connexion
+- **Indépendant** : Timeout séparé pour bateau et vent
+- **Pas de synchronisation** : Utilise l'horloge locale du Display uniquement
 
 ### 🌐 Connectivité
-- **ESP-NOW** : Réception des données GPS en temps réel depuis le voilier
-- **WiFi** : Mode serveur de fichiers pour accès aux données stockées
-- **Commutation automatique** : Basculement intelligent entre ESP-NOW et WiFi
+- **ESP-NOW** : Réception des données en temps réel (100-200m de portée)
+  - Données bateau (GPS) : vitesse, cap, timestamp
+  - Données vent (anémomètre) : vitesse, timestamp
+- **Multi-sources** : Supporte plusieurs bateaux et anémomètres simultanément
+- **Broadcast** : Communication point-à-multipoint sans appairage
 
 ### 💾 Stockage des données
 - **Carte SD** : Enregistrement automatique des données de navigation
@@ -43,17 +52,45 @@ Un système d'affichage GPS pour télécommande de voilier RC basé sur un M5Sta
 
 ## 🚀 Installation
 
-### Prérequis
+### Option 1 : M5Burner (Recommandé) 🌟
+
+**La méthode la plus simple pour flasher votre M5Stack !**
+
+1. **Télécharger M5Burner**
+   - Windows/Mac/Linux : [M5Burner Download](https://docs.m5stack.com/en/download)
+
+2. **Télécharger le firmware**
+   - Aller dans [Releases](https://github.com/FRA-222/Boat-GPS-Display/releases)
+   - Télécharger `OpenSailingRC_Display_v1.0.3_MERGED.bin`
+
+3. **Flasher le M5Stack Core2**
+   - Ouvrir M5Burner
+   - Connecter le M5Stack Core2 en USB-C
+   - Sélectionner le port COM
+   - Choisir le fichier `.bin` téléchargé
+   - Adresse : `0x0` (important !)
+   - Cliquer sur "Burn"
+
+4. **Vérifier**
+   - Redémarrer le M5Stack
+   - L'interface 4 lignes devrait s'afficher
+   - Vérifier que `--` apparaît (normal sans signal)
+
+✅ **Aucune compilation nécessaire !**
+
+### Option 2 : PlatformIO (Pour développeurs)
+
+#### Prérequis
 1. [PlatformIO](https://platformio.org/) installé
 2. [VS Code](https://code.visualstudio.com/) avec extension PlatformIO
 3. Pilotes USB-C pour M5Stack Core2
 
-### Étapes d'installation
+#### Étapes d'installation
 
 1. **Cloner le projet**
    ```bash
-   git clone https://github.com/FRA-222/OpenSailingRC-Display.git
-   cd OpenSailingRC-Display
+   git clone https://github.com/FRA-222/Boat-GPS-Display.git
+   cd Boat-GPS-Display/OpenSailingRC-Display
    ```
 
 2. **Compiler le projet**
@@ -86,26 +123,43 @@ Un système d'affichage GPS pour télécommande de voilier RC basé sur un M5Sta
 
 ### Démarrage
 1. Allumer le M5Stack Core2
-2. L'écran affiche l'interface de navigation
-3. Les données GPS s'affichent automatiquement lors de la réception
+2. L'interface 4 lignes s'affiche automatiquement
+3. Par défaut, toutes les valeurs affichent `--` (pas de données)
+4. Les données apparaissent dès réception des signaux ESP-NOW
 
-### Interface utilisateur
-- **Écran principal** : Affichage des données de navigation
-- **Rose des vents** : Orientation visuelle du cap
-- **Barre de vitesse** : Indicateur coloré sur le côté droit
-- **Informations textuelles** : Vitesse, cap et satellites
+### Interface utilisateur (v1.0.3)
+
+#### Écran principal 4 lignes
+```
+┌─────────────────────────────┐
+│ BOAT   12.5 KTS            │  ← Vitesse bateau
+│ BOAT   285 DEG             │  ← Cap bateau
+│ WIND   8.3 KTS             │  ← Vitesse vent
+│ WIND   -- DEG              │  ← Direction vent*
+└─────────────────────────────┘
+```
+*Direction vent préparée pour future implémentation avec bouées GPS
+
+#### Indicateurs de timeout
+- **Valeur numérique** : Donnée valide reçue < 5 secondes
+- **`--`** : Aucune donnée depuis > 5 secondes
+- **Indépendant** : Bateau et vent ont des timeouts séparés
 
 ### Modes de fonctionnement
 
 #### Mode ESP-NOW (par défaut)
-- Réception des données GPS depuis le voilier RC
-- Affichage temps réel des informations de navigation
-- Enregistrement automatique sur carte SD
+- **Réception bateau** : Vitesse, cap depuis module GPS embarqué
+- **Réception vent** : Vitesse depuis anémomètre AtomS3
+- **Temps réel** : Rafraîchissement automatique à chaque réception
+- **Portée** : 100-200 mètres en ligne de vue
 
-#### Mode WiFi (serveur de fichiers)
-- Activation via interface tactile
-- Serveur web accessible à l'adresse IP affichée
-- Téléchargement des fichiers de données enregistrés
+#### Compatibilité
+- ⚠️ **Version 1.0.3 requise sur tous les appareils**
+- Incompatible avec versions antérieures (structure modifiée)
+- Nécessite :
+  - OpenSailingRC-Display v1.0.3
+  - OpenSailingRC-Anemometer v1.0.3
+  - OpenSailingRC-BoatGPS v1.0.3
 
 ## 🏗️ Architecture du projet
 
@@ -157,16 +211,26 @@ Système de logging unifié pour le debugging.
 
 ## 📊 Format des données
 
-### Structure ESP-NOW
+### Structures ESP-NOW (v1.0.3)
+
+#### struct_message_Boat
 ```cpp
-struct GPSData {
-    double latitude;    // Latitude GPS (degrés)
-    double longitude;   // Longitude GPS (degrés)
-    float speed;        // Vitesse (m/s)
-    float heading;      // Cap (degrés, 0=Nord)
-    int satellites;     // Nombre de satellites
+struct struct_message_Boat {
+    float speedKnots;      // Vitesse en nœuds
+    float heading;         // Cap en degrés (0-360)
+    unsigned long timestamp; // Timestamp (rempli par Display)
 };
 ```
+
+#### struct_message_Anemometer
+```cpp
+struct struct_message_Anemometer {
+    float windSpeed;       // Vitesse du vent en nœuds
+    unsigned long timestamp; // Timestamp (rempli par Display)
+};
+```
+
+> 💡 **Note** : Le timestamp est initialisé à 0 par l'émetteur et rempli par le Display lors de la réception avec `millis()`. Cela permet le système de timeout sans synchronisation entre appareils.
 
 ### Format JSON (carte SD)
 ```json
@@ -249,11 +313,32 @@ Ce projet est sous licence GNU General Public License v3.0. Voir le fichier [LIC
 - **Discussions** : [Forum de discussion](https://github.com/FRA-222/OpenSailingRC-Display/discussions)
 - **Documentation** : [Wiki du projet](https://github.com/FRA-222/OpenSailingRC-Display/wiki)
 
+## 📦 Releases
+
+### Version 1.0.3 (Actuelle)
+- ✅ Interface 4 lignes (BOAT + WIND)
+- ✅ Système de timeout 5 secondes
+- ✅ Terminologie WIND au lieu de BUOY
+- ✅ Structures avec timestamp
+- ✅ Merged bin pour M5Burner
+
+📥 [Télécharger v1.0.3](https://github.com/FRA-222/Boat-GPS-Display/releases/tag/v1.0.3)
+
+### Changelog complet
+Voir [RELEASE_NOTES_V1.0.3.md](releases/v1.0.3/RELEASE_NOTES_V1.0.3.md) pour tous les détails.
+
 ## 🔄 Projets liés
 
-- [OpenSailingRC-Anemometer-v2](https://github.com/FRA-222/OpenSailingRC-Anemometer-v2) - Anémomètre pour voilier RC
-- [OpenSailingRC-GPS](https://github.com/FRA-222/OpenSailingRC-GPS) - Module GPS pour voilier RC
-- [OpenSailingRC-Base](https://github.com/FRA-222/OpenSailingRC-Base) - Système de base pour télécommande
+### Écosystème OpenSailingRC
+- [OpenSailingRC-Anemometer-v2](https://github.com/FRA-222/OpenSailingRC-Anemometer-v2) - Anémomètre M5Stack AtomS3
+- [OpenSailingRC-BoatGPS](https://github.com/FRA-222/OpenSailingRC-BoatGPS) - Module GPS embarqué M5Stack AtomS3
+- [OpenSailingRC-Display](https://github.com/FRA-222/Boat-GPS-Display) - Display M5Stack Core2 (ce projet)
+
+### Installation complète
+Pour un système complet, flasher les 3 firmwares v1.0.3 :
+1. **Display** (M5Stack Core2) - Écran 4 lignes
+2. **Anemometer** (M5Stack AtomS3) - Mesure vitesse vent
+3. **BoatGPS** (M5Stack AtomS3) - Mesure vitesse/cap bateau
 
 ---
 

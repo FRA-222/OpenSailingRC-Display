@@ -1,0 +1,130 @@
+# OpenSailingRC v1.0.3 - Installation M5Burner
+
+## 📱 Guide rapide d'installation
+
+### Étape 1 : Préparation
+1. Télécharger **M5Burner** depuis https://docs.m5stack.com/en/download
+2. Extraire et lancer M5Burner
+3. Télécharger les 3 fichiers `.bin` depuis cette release
+
+### Étape 2 : Display (M5Stack Core2)
+1. **Connecter** le M5Stack Core2 via USB-C
+2. Dans M5Burner, sélectionner **"M5Stack Core2"**
+3. Cliquer sur **"Custom"** ou **"Upload File"**
+4. Sélectionner `OpenSailingRC_Display_v1.0.3_MERGED.bin`
+5. **Adresse** : `0x0` (important !)
+6. Cliquer sur **"Burn"**
+7. Attendre la fin (~30 secondes)
+
+### Étape 3 : Anémomètre (M5Stack AtomS3)
+1. **Connecter** le M5Stack AtomS3 via USB-C
+2. Dans M5Burner, sélectionner **"M5Stack AtomS3"**
+3. Cliquer sur **"Custom"** ou **"Upload File"**
+4. Sélectionner `OpenSailingRC_Anemometer_v1.0.3_MERGED.bin`
+5. **Adresse** : `0x0` (important !)
+6. Cliquer sur **"Burn"**
+7. Attendre la fin (~20 secondes)
+
+### Étape 4 : BoatGPS (M5Stack AtomS3)
+1. **Connecter** le M5Stack AtomS3 GPS via USB-C
+2. Dans M5Burner, sélectionner **"M5Stack AtomS3"**
+3. Cliquer sur **"Custom"** ou **"Upload File"**
+4. Sélectionner `OpenSailingRC_BoatGPS_v1.0.3_MERGED.bin`
+5. **Adresse** : `0x0` (important !)
+6. Cliquer sur **"Burn"**
+7. Attendre la fin (~20 secondes)
+
+### Étape 5 : Vérification
+1. Débrancher tous les appareils
+2. Allumer le **Display** → doit afficher 4 lignes avec `--`
+3. Allumer l'**Anémomètre** → Display WIND doit afficher des valeurs
+4. Allumer le **BoatGPS** → Display BOAT doit afficher des valeurs
+
+## ⚠️ Points importants
+
+### Ordre d'installation
+**Recommandé** : Display → Anémomètre → BoatGPS
+
+### Adresse flash
+**CRITIQUE** : Toujours utiliser l'adresse `0x0` pour les merged bin
+
+### Sélection du bon appareil
+- **Core2** : Grand écran tactile
+- **AtomS3** : Petit cube avec écran LCD
+
+### Après installation
+- Les appareils redémarrent automatiquement
+- Pas de configuration supplémentaire nécessaire
+- La communication ESP-NOW démarre automatiquement
+
+## 🔍 Vérification du succès
+
+### Display doit afficher
+```
+BOAT  [--]  KTS
+      [--]  DEG
+WIND  [--]  KTS
+      [--]  DEG
+```
+
+### Avec appareils actifs
+```
+BOAT  5.2   KTS
+      45    DEG
+WIND  3.8   KTS
+      --    DEG
+```
+
+### Anémomètre doit afficher
+```
+5.2
+m/s
+```
+
+### BoatGPS doit afficher
+GPS fix avec coordonnées
+
+## ❌ En cas d'erreur
+
+### Erreur "Upload failed"
+1. Vérifier le câble USB-C
+2. Vérifier le port COM sélectionné
+3. Réessayer avec un autre port USB
+4. Redémarrer M5Burner
+
+### Écran noir après flash
+1. Appuyer sur le bouton Reset
+2. Débrancher/rebrancher l'alimentation
+3. Vérifier que l'adresse était `0x0`
+
+### Pas de communication ESP-NOW
+1. Vérifier que tous sont en v1.0.3
+2. Redémarrer tous les appareils
+3. Vérifier la portée (< 100m)
+4. Consulter les logs série (115200 baud)
+
+## 📋 Checksums de vérification
+
+Avant installation, vérifier les checksums :
+
+```bash
+# macOS/Linux
+shasum -a 256 OpenSailingRC_*.bin
+
+# Windows PowerShell
+Get-FileHash -Algorithm SHA256 OpenSailingRC_*.bin
+```
+
+Comparer avec `SHA256SUMS.txt`
+
+## 🔗 Ressources
+
+- **M5Burner Download** : https://docs.m5stack.com/en/download
+- **Documentation complète** : `M5BURNER_INSTALLATION_GUIDE.md`
+- **Release Notes** : `RELEASE_NOTES_V1.0.3.md`
+- **Firmware Info** : `FIRMWARE_INFO.md`
+
+---
+
+**Temps total d'installation** : ~5 minutes  
+**Niveau de difficulté** : ⭐ Facile

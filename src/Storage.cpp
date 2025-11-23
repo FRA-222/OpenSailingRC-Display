@@ -168,6 +168,7 @@ bool Storage::writeData(const StorageData& data) {
         JsonObject boat = doc.createNestedObject("boat");
         boat["messageType"] = data.boatData.messageType;
         boat["name"] = data.boatData.name;
+        boat["sequenceNumber"] = data.boatData.sequenceNumber;
         boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
         boat["latitude"] = data.boatData.latitude;
         boat["longitude"] = data.boatData.longitude;
@@ -180,6 +181,7 @@ bool Storage::writeData(const StorageData& data) {
         JsonObject anemometer = doc.createNestedObject("anemometer");
         anemometer["messageType"] = data.anemometerData.messageType;
         anemometer["anemometerId"] = data.anemometerData.anemometerId;
+        anemometer["sequenceNumber"] = data.anemometerData.sequenceNumber;
         anemometer["windSpeed"] = data.anemometerData.windSpeed;
         
         // Add MAC address for device identification
@@ -235,6 +237,7 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
             JsonObject boat = doc.createNestedObject("boat");
             boat["messageType"] = data.boatData.messageType;
             boat["name"] = data.boatData.name;
+            boat["sequenceNumber"] = data.boatData.sequenceNumber;
             boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
             boat["latitude"] = data.boatData.latitude;
             boat["longitude"] = data.boatData.longitude;
@@ -247,6 +250,7 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
             JsonObject anemometer = doc.createNestedObject("anemometer");
             anemometer["messageType"] = data.anemometerData.messageType;
             anemometer["anemometerId"] = data.anemometerData.anemometerId;
+            anemometer["sequenceNumber"] = data.anemometerData.sequenceNumber;
             anemometer["windSpeed"] = data.anemometerData.windSpeed;
             
             // Add MAC address for device identification

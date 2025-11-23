@@ -21,6 +21,7 @@ private:
   float lastHeading = -999;
   uint8_t lastSatellites = 255;
   float lastWindSpeedKnots = -999;
+  float lastWindDirection = -999;
   bool lastIsRecording = false;
   bool lastIsServerActive = false;
   int lastBoatCount = 0;
@@ -28,7 +29,7 @@ private:
 public:
   void showSplashScreen();
   void drawSpeedBar(float speedKnots);
-  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0);
+  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0);
   void drawCompass(float heading);
   void showFileServerStatus(bool active, const String& ipAddress);
   void updateServerMessageDisplay(); // Nouvelle fonction pour l'affichage non-bloquant
