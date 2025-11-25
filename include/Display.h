@@ -25,6 +25,8 @@ private:
   bool lastIsRecording = false;
   bool lastIsServerActive = false;
   int lastBoatCount = 0;
+  int lastBatteryPercent = -1;
+  bool lastIsCharging = false;
   
 public:
   void showSplashScreen();

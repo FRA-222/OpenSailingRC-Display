@@ -4,8 +4,7 @@
 // Structures de données
 typedef struct struct_message_Boat {
     int8_t messageType;  // 1 = Boat, 2 = Anemometer
-    char name[18];     // MAC address as string (format: "AA:BB:CC:DD:EE:FF")
-    int boatId;          // Numeric boat ID
+    char name[18];     // Custom boat name or MAC address (max 17 chars + null terminator)
     uint32_t sequenceNumber; // Sequence number for packet loss detection
     uint32_t gpsTimestamp; // Timestamp GPS en millisecondes
     float latitude;
@@ -13,7 +12,6 @@ typedef struct struct_message_Boat {
     float speed;     // en noeuds (knots)
     float heading;   // en degrés (0=N, 90=E, 180=S, 270=W)
     uint8_t satellites; // nombre de satellites visibles
-    unsigned long timestamp; // Timestamp of the measurement
 } struct_message_Boat;
 
 typedef struct struct_message_Anemometer {

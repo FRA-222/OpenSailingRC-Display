@@ -23,6 +23,10 @@
  */
 #include "Display.h"
 
+// Variables globales de timestamp (définies dans main.cpp)
+extern unsigned long boatDataTimestamp;
+extern unsigned long anemometerDataTimestamp;
+
 /**
  * @brief Displays the initial splash screen with project identification
  * 
@@ -38,7 +42,7 @@ void Display::showSplashScreen() {
     M5.Lcd.drawString("OpenSailingRC", centerX, centerY - 80);
     M5.Lcd.drawString("Display", centerX, centerY - 40);
     M5.Lcd.setTextSize(3);
-    M5.Lcd.drawString("V1.0", centerX, centerY + 10);
+    M5.Lcd.drawString("V1.0.4", centerX, centerY + 10);
     delay(2000);
     M5.Lcd.fillScreen(BLACK);
 }
@@ -137,8 +141,8 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     
     // Vérifier timeout des données (5 secondes)
     unsigned long currentTime = millis();
-    bool boatDataValid = (currentTime - boatData.timestamp) < 5000;
-    bool windDataValid = (currentTime - anemometerData.timestamp) < 5000;
+    bool boatDataValid = (currentTime - boatDataTimestamp) < 5000;
+    bool windDataValid = (currentTime - anemometerDataTimestamp) < 5000;
     bool windDirValid = (currentTime - windDirTimestamp) < 5000;
     
     // Mettre à jour uniquement la vitesse si elle a changé ou si le timeout a changé
@@ -182,13 +186,99 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         // Effacer l'ancienne valeur
         M5.Lcd.fillRect(240, 0, 80, 20, BLACK);
         
-        // Dessiner la nouvelle valeur
-        M5.Lcd.setCursor(240, 10);
+        // Dessiner le pictogramme de satellite
+        int satX = 245;
+        int satY = 3;
+        
+        // Panneau solaire gauche (lignes horizontales bleues)
+        M5.Lcd.drawRect(satX, satY, 4, 12, WHITE);
+        M5.Lcd.drawLine(satX + 1, satY + 2, satX + 2, satY + 2, BLUE);
+        M5.Lcd.drawLine(satX + 1, satY + 4, satX + 2, satY + 4, BLUE);
+        M5.Lcd.drawLine(satX + 1, satY + 6, satX + 2, satY + 6, BLUE);
+        M5.Lcd.drawLine(satX + 1, satY + 8, satX + 2, satY + 8, BLUE);
+        M5.Lcd.drawLine(satX + 1, satY + 10, satX + 2, satY + 10, BLUE);
+        
+        // Corps du satellite (rectangle central blanc)
+        M5.Lcd.fillRect(satX + 5, satY + 3, 4, 6, WHITE);
+        
+        // Panneau solaire droit (lignes horizontales bleues)
+        M5.Lcd.drawRect(satX + 10, satY, 4, 12, WHITE);
+        M5.Lcd.drawLine(satX + 11, satY + 2, satX + 12, satY + 2, BLUE);
+        M5.Lcd.drawLine(satX + 11, satY + 4, satX + 12, satY + 4, BLUE);
+        M5.Lcd.drawLine(satX + 11, satY + 6, satX + 12, satY + 6, BLUE);
+        M5.Lcd.drawLine(satX + 11, satY + 8, satX + 12, satY + 8, BLUE);
+        M5.Lcd.drawLine(satX + 11, satY + 10, satX + 12, satY + 10, BLUE);
+        
+        // Dessiner le nombre de satellites avec un espace
+        M5.Lcd.setCursor(265, 8);
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(2);
-        M5.Lcd.printf("%d SAT", boatData.satellites);
+        M5.Lcd.printf("%d", boatData.satellites);
         
         lastSatellites = boatData.satellites;
+    }
+    
+    // Mettre à jour l'affichage de la batterie (centré en haut)
+    int batteryPercent = M5.Power.getBatteryLevel();
+    bool isCharging = M5.Power.isCharging();
+    
+    if (batteryPercent != lastBatteryPercent || isCharging != lastIsCharging) {
+        // Effacer la zone centrale en haut
+        M5.Lcd.fillRect(90, 0, 140, 25, BLACK);
+        
+        // Position centrée (écran 320px de large)
+        int centerX = 160;
+        
+        // Dessiner le picto batterie à gauche du pourcentage
+        int batteryX = centerX - 45;
+        int batteryY = 2;  // Remonté pour aligner avec le texte (Y plus petit = plus haut)
+        
+        // Dessiner le corps de la batterie (rectangle)
+        M5.Lcd.drawRect(batteryX, batteryY, 24, 12, WHITE);
+        M5.Lcd.fillRect(batteryX + 1, batteryY + 1, 22, 10, BLACK);
+        
+        // Dessiner la borne + de la batterie
+        M5.Lcd.fillRect(batteryX + 24, batteryY + 3, 2, 6, WHITE);
+        
+        // Remplir la batterie selon le niveau (proportionnel avec couleur)
+        int fillWidth = (batteryPercent * 20) / 100;
+        if (fillWidth > 20) fillWidth = 20;
+        
+        if (batteryPercent > 50) {
+            M5.Lcd.fillRect(batteryX + 2, batteryY + 2, fillWidth, 8, GREEN);
+        } else if (batteryPercent > 20) {
+            M5.Lcd.fillRect(batteryX + 2, batteryY + 2, fillWidth, 8, ORANGE);
+        } else {
+            M5.Lcd.fillRect(batteryX + 2, batteryY + 2, fillWidth, 8, RED);
+        }
+        
+        // Dessiner l'icône éclair si en charge
+        if (isCharging) {
+            // Éclair jaune sur la batterie
+            M5.Lcd.fillTriangle(batteryX + 14, batteryY + 2,
+                               batteryX + 10, batteryY + 7,
+                               batteryX + 12, batteryY + 7, YELLOW);
+            M5.Lcd.fillTriangle(batteryX + 10, batteryY + 7,
+                               batteryX + 14, batteryY + 12,
+                               batteryX + 12, batteryY + 7, YELLOW);
+        }
+        
+        // Dessiner le pourcentage à droite du picto (avec couleur selon niveau)
+        M5.Lcd.setCursor(batteryX + 32, 8);
+        M5.Lcd.setTextSize(2);
+        
+        if (batteryPercent > 50) {
+            M5.Lcd.setTextColor(GREEN);
+        } else if (batteryPercent > 20) {
+            M5.Lcd.setTextColor(ORANGE);
+        } else {
+            M5.Lcd.setTextColor(RED);
+        }
+        
+        M5.Lcd.printf("%d%%", batteryPercent);
+        
+        lastBatteryPercent = batteryPercent;
+        lastIsCharging = isCharging;
     }
     
     // Mettre à jour uniquement la vitesse du vent si elle a changé ou si le timeout a changé
@@ -334,12 +424,12 @@ void Display::drawButtonLabels(bool isRecording, bool isServerActive, int boatCo
     int button3X = 213;      // Position X du 3ème bouton
     
     // Bouton 1 (gauche) - Enregistrement GPS
-    M5.Lcd.fillRect(0, buttonY, button1Width, buttonHeight, isRecording ? GREEN : RED);
+    M5.Lcd.fillRect(0, buttonY, button1Width, buttonHeight, isRecording ? RED : NAVY);
     M5.Lcd.drawRect(0, buttonY, button1Width, buttonHeight, WHITE);
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextDatum(MC_DATUM);
     M5.Lcd.setTextSize(2);
-    M5.Lcd.drawString(isRecording ? "REC" : "STOP", button1Width/2, buttonY + buttonHeight/2);
+    M5.Lcd.drawString(isRecording ? "STOP" : "RECORD", button1Width/2, buttonY + buttonHeight/2);
     
     // Bouton 2 (centre) - Sélection bateau
     if (boatCount > 1) {
@@ -351,18 +441,18 @@ void Display::drawButtonLabels(bool isRecording, bool isServerActive, int boatCo
         M5.Lcd.setTextSize(2);
         M5.Lcd.drawString("BOAT ?", button2X + button2Width/2, buttonY + buttonHeight/2);
     } else {
-        // Un seul ou aucun bateau : zone grise (non utilisée)
-        M5.Lcd.fillRect(button2X, buttonY, button2Width, buttonHeight, DARKGREY);
+        // Un seul ou aucun bateau : zone bleu marine (non utilisée)
+        M5.Lcd.fillRect(button2X, buttonY, button2Width, buttonHeight, NAVY);
         M5.Lcd.drawRect(button2X, buttonY, button2Width, buttonHeight, WHITE);
     }
     
     // Bouton 3 (droite) - Serveur de fichiers
-    M5.Lcd.fillRect(button3X, buttonY, button3Width, buttonHeight, isServerActive ? GREEN : RED);
+    M5.Lcd.fillRect(button3X, buttonY, button3Width, buttonHeight, isServerActive ? RED : NAVY);
     M5.Lcd.drawRect(button3X, buttonY, button3Width, buttonHeight, WHITE);
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextDatum(MC_DATUM);
     M5.Lcd.setTextSize(2);
-    M5.Lcd.drawString(isServerActive ? "SERV" : "WIFI", button3X + button3Width/2, buttonY + buttonHeight/2);
+    M5.Lcd.drawString(isServerActive ? "STOP" : "WIFI", button3X + button3Width/2, buttonY + buttonHeight/2);
 }
 
 /**
@@ -413,13 +503,16 @@ void Display::updateServerMessageDisplay() {
         showingServerMessage = false;
         needsRefreshAfterServerMessage = true; // Marquer qu'un refresh est nécessaire
         
-        // Effacer la zone du message
-        const int screenWidth = 320;
-        const int centerX = 160;
-        const int centerY = 120;
-        int messageY = centerY - 30;
-        int messageHeight = 60;
-        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, BLACK);
+        // Forcer un rafraîchissement complet de l'écran
+        labelsDrawn = false;
+        lastSpeedKnots = -999;
+        lastHeading = -999;
+        lastSatellites = -1;
+        lastWindSpeedKnots = -999;
+        lastWindDirection = -999;
+        lastBatteryPercent = -1;
+        lastIsCharging = false;
+        
         return;
     }
     
@@ -436,15 +529,16 @@ void Display::updateServerMessageDisplay() {
     int messageHeight = 60;
     
     if (serverMessageActive) {
-        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, GREEN);
+        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, RED);
         M5.Lcd.setTextColor(BLACK);
         M5.Lcd.setTextDatum(MC_DATUM);
         M5.Lcd.setTextSize(3);
         M5.Lcd.drawString("SERVEUR ACTIF", centerX, centerY - 10);
+        M5.Lcd.setTextColor(BLACK);
         M5.Lcd.setTextSize(2);
         M5.Lcd.drawString("http://" + serverMessageIP, centerX, centerY + 15);
     } else {
-        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, RED);
+        M5.Lcd.fillRect(0, messageY, screenWidth, messageHeight, NAVY);
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextDatum(MC_DATUM);
         M5.Lcd.setTextSize(3);

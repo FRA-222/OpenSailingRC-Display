@@ -175,7 +175,6 @@ bool Storage::writeData(const StorageData& data) {
         boat["speed"] = data.boatData.speed;
         boat["heading"] = data.boatData.heading;
         boat["satellites"] = data.boatData.satellites;
-        boat["boatId"] = data.boatData.boatId;
     } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
         // Serialize anemometer data into nested JSON object
         JsonObject anemometer = doc.createNestedObject("anemometer");
@@ -244,7 +243,6 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
             boat["speed"] = data.boatData.speed;
             boat["heading"] = data.boatData.heading;
             boat["satellites"] = data.boatData.satellites;
-            boat["boatId"] = data.boatData.boatId;
         } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
             // Serialize anemometer data into nested JSON object
             JsonObject anemometer = doc.createNestedObject("anemometer");

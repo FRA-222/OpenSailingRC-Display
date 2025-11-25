@@ -65,7 +65,9 @@
 struct_message_Boat incomingBoatData = {};
 struct_message_Anemometer incomingAnemometerData = {};
 
-
+// Timestamps de réception des données (géré localement)
+unsigned long boatDataTimestamp = 0;
+unsigned long anemometerDataTimestamp = 0;
 
 // Structure pour gérer plusieurs bateaux
 typedef struct BoatInfo {
@@ -277,7 +279,7 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
         return; // Paquet trop court, ignorer
     }
     memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
-    incomingBoatData.timestamp = millis(); // Timestamp de réception
+    boatDataTimestamp = millis(); // Timestamp de réception
     
     // Conversion MAC ultra-rapide (sans String ni allocation)
     String macStr = macToString(mac);
@@ -356,7 +358,7 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
                  incomingAnemometerData.macAddress[4], incomingAnemometerData.macAddress[5]);
     }
     
-    incomingAnemometerData.timestamp = millis(); // Timestamp de réception
+    anemometerDataTimestamp = millis(); // Timestamp de réception
     
     newData = true;
     
@@ -580,8 +582,8 @@ void setup() {
   logger.log("Setup started");
   
   // Initialiser les timestamps à 0 pour forcer l'affichage de "--" au démarrage
-  incomingBoatData.timestamp = 0;
-  incomingAnemometerData.timestamp = 0;
+  boatDataTimestamp = 0;
+  anemometerDataTimestamp = 0;
 
   if (!storage.initSD()) {
         logger.log("Erreur d'initialisation du stockage SD");
