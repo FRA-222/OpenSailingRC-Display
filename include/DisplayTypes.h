@@ -23,6 +23,65 @@ typedef struct struct_message_Anemometer {
     unsigned long timestamp; // Timestamp of the measurement
 } struct_message_Anemometer;
 
+// Énumérations pour les bouées GPS autonomes
+enum tEtatsGeneral {
+    BUOY_INIT = 0,
+    BUOY_READY,
+    BUOY_MAINTENANCE,
+    BUOY_HOME_DEFINITION,
+    BUOY_NAV
+};
+
+enum tEtatsNav {
+    NAV_NOTHING = 0,
+    NAV_HOME,
+    NAV_HOLD,
+    NAV_STOP,
+    NAV_BASIC,
+    NAV_CAP,
+    NAV_TARGET
+};
+
+typedef struct struct_message_Buoy {
+    uint8_t buoyId;                     // Buoy ID (0-5)
+    uint32_t timestamp;                 // Message timestamp
+    
+    // General state
+    tEtatsGeneral generalMode;          // General state
+    tEtatsNav navigationMode;           // Current navigation mode
+    
+    // Sensor status
+    bool gpsOk;                         // GPS sensor status
+    bool headingOk;                     // Heading sensor status
+    bool yawRateOk;                     // Yaw rate sensor status
+    
+    // GPS position
+    double latitude;                    // Latitude in degrees
+    double longitude;                   // Longitude in degrees
+    
+    // Environmental data
+    float temperature;                  // Temperature in °C
+    
+    // Battery data
+    float remainingCapacity;            // Remaining battery capacity in mAh
+    
+    // Navigation data
+    float distanceToCons;               // Distance to consigne/waypoint in meters
+    
+    // Autopilot commands
+    int8_t autoPilotThrottleCmde;       // Autopilot throttle command (-100 to +100%)
+    float autoPilotTrueHeadingCmde;     // Autopilot heading command in degrees
+    int8_t autoPilotRudderCmde;         // Autopilot rudder command (-100 to +100%)
+    
+    // Forced commands
+    int8_t forcedThrottleCmde;          // Forced throttle command (-100 to +100%)
+    bool forcedThrottleCmdeOk;          // Forced throttle command active flag
+    float forcedTrueHeadingCmde;        // Forced heading command in degrees
+    bool forcedTrueHeadingCmdeOk;       // Forced heading command active flag
+    int8_t forcedRudderCmde;            // Forced rudder command (-100 to +100%)
+    bool forcedRudderCmdeOk;            // Forced rudder command active flag
+} struct_message_Buoy;
+
 // Constantes d'affichage
 const int screenWidth = 320;
 const int screenHeight = 240;

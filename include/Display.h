@@ -25,18 +25,19 @@ private:
   bool lastIsRecording = false;
   bool lastIsServerActive = false;
   int lastBoatCount = 0;
+  bool lastHasSDError = false;
   int lastBatteryPercent = -1;
   bool lastIsCharging = false;
   
 public:
   void showSplashScreen();
   void drawSpeedBar(float speedKnots);
-  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0);
+  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0, bool hasSDError = false);
   void drawCompass(float heading);
   void showFileServerStatus(bool active, const String& ipAddress);
   void updateServerMessageDisplay(); // Nouvelle fonction pour l'affichage non-bloquant
   bool needsRefresh(); // Vérifie si un refresh est nécessaire après message serveur
-  void drawButtonLabels(bool isRecording, bool isServerActive, int boatCount = 0);
+  void drawButtonLabels(bool isRecording, bool isServerActive, int boatCount = 0, bool hasSDError = false);
   void showSDError(const String& errorMessage);
   void forceFullRefresh(); // Force un rafraîchissement complet de l'affichage
 };

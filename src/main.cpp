@@ -64,10 +64,12 @@
 // Instances globales
 struct_message_Boat incomingBoatData = {};
 struct_message_Anemometer incomingAnemometerData = {};
+struct_message_Buoy incomingBuoyData = {};
 
 // Timestamps de réception des données (géré localement)
 unsigned long boatDataTimestamp = 0;
 unsigned long anemometerDataTimestamp = 0;
+unsigned long buoyDataTimestamp = 0;
 
 // Structure pour gérer plusieurs bateaux
 typedef struct BoatInfo {
@@ -86,6 +88,19 @@ std::map<String, BoatInfo> detectedBoats;
 std::vector<String> boatMacList; // Liste ordonnée des adresses MAC pour navigation
 int selectedBoatIndex = 0; // Index du bateau actuellement sélectionné
 const unsigned long BOAT_TIMEOUT_MS = 30000; // 30 secondes - timeout pour retirer un bateau
+
+// Structure pour gérer les données de plusieurs bouées GPS
+typedef struct BuoyInfo {
+    struct_message_Buoy data;
+    unsigned long lastUpdate; // Timestamp de la dernière réception
+} BuoyInfo;
+
+// Map pour stocker les données de plusieurs bouées (clé = buoyId)
+std::map<uint8_t, BuoyInfo> detectedBuoys;
+const unsigned long BUOY_TIMEOUT_MS = 10000; // 10 secondes - timeout données bouée
+unsigned long lastBuoyUpdateTimestamp = 0; // Timestamp de la dernière mise à jour bouée
+volatile float lastComputedWindDirection = -1; // Dernière direction du vent calculée (pour stockage anémomètre)
+volatile bool sdWriteError = false; // Flag d'erreur d'écriture SD (mis par storageTask)
 
 // Instances des gestionnaires
 Logger logger;
@@ -136,6 +151,16 @@ void printStructureInfo() {
     logger.log(String("  sequenceNumber: ") + String(offsetof(struct_message_Anemometer, sequenceNumber)));
     logger.log(String("  windSpeed: ") + String(offsetof(struct_message_Anemometer, windSpeed)));
     logger.log(String("  timestamp: ") + String(offsetof(struct_message_Anemometer, timestamp)));
+    logger.log("--- BOUÉE GPS ---");
+    logger.log(String("Taille struct_message_Buoy: ") + String(sizeof(struct_message_Buoy)) + " bytes");
+    logger.log("Offsets struct_message_Buoy:");
+    logger.log(String("  buoyId: ") + String(offsetof(struct_message_Buoy, buoyId)));
+    logger.log(String("  timestamp: ") + String(offsetof(struct_message_Buoy, timestamp)));
+    logger.log(String("  generalMode: ") + String(offsetof(struct_message_Buoy, generalMode)));
+    logger.log(String("  navigationMode: ") + String(offsetof(struct_message_Buoy, navigationMode)));
+    logger.log(String("  gpsOk: ") + String(offsetof(struct_message_Buoy, gpsOk)));
+    logger.log(String("  temperature: ") + String(offsetof(struct_message_Buoy, temperature)));
+    logger.log(String("  remainingCapacity: ") + String(offsetof(struct_message_Buoy, remainingCapacity)));
     logger.log("===============================");
 }
 
@@ -168,6 +193,38 @@ String macToString(const uint8_t* mac) {
     }
     macStr.toUpperCase();
     return macStr;
+}
+
+/**
+ * @brief Calcule la direction moyenne du vent à partir des bouées actives
+ * 
+ * Utilise la moyenne circulaire (sin/cos) pour éviter les erreurs
+ * autour de 0°/360° (ex: moyenne de 350° et 10° = 0°, pas 180°)
+ * 
+ * @return Direction moyenne du vent en degrés (0-360), ou -1 si aucune bouée active
+ */
+float computeAverageWindDirection() {
+    unsigned long currentTime = millis();
+    float sumSin = 0;
+    float sumCos = 0;
+    int count = 0;
+    
+    for (auto& pair : detectedBuoys) {
+        // Utiliser uniquement les données récentes (dans le timeout)
+        if (currentTime - pair.second.lastUpdate < BUOY_TIMEOUT_MS) {
+            float headingRad = pair.second.data.autoPilotTrueHeadingCmde * DEG_TO_RAD;
+            sumSin += sin(headingRad);
+            sumCos += cos(headingRad);
+            count++;
+        }
+    }
+    
+    if (count == 0) return -1; // Aucune bouée active
+    
+    float avgRad = atan2(sumSin / count, sumCos / count);
+    float avgDeg = avgRad / DEG_TO_RAD;
+    if (avgDeg < 0) avgDeg += 360.0;
+    return avgDeg;
 }
 
 /**
@@ -274,15 +331,18 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
   {
   case 1: { // GPS Boat
 
-    // Copie rapide des données (vérification de taille minimale)
-    if (len < sizeof(struct_message_Boat)) {
-        return; // Paquet trop court, ignorer
+    // Copie rapide des données (vérification de taille exacte)
+    if (len != sizeof(struct_message_Boat)) {
+        return; // Paquet invalide, ignorer
     }
     memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
     boatDataTimestamp = millis(); // Timestamp de réception
     
-    // Conversion MAC ultra-rapide (sans String ni allocation)
-    String macStr = macToString(mac);
+    // Conversion MAC ultra-rapide (buffer statique, sans allocation heap)
+    static char macBuf[18];
+    snprintf(macBuf, sizeof(macBuf), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    String macStr(macBuf);
     
     // Vérifier si c'est un nouveau bateau
     bool isNewBoat = (detectedBoats.find(macStr) == detectedBoats.end());
@@ -327,7 +387,7 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
       
       if (xSemaphoreTake(storageDataMutex, 0) == pdTRUE) { // Non-bloquant !
         StorageData storageData;
-        storageData.timestamp = incomingBoatData.gpsTimestamp;
+        storageData.timestamp = millis(); // Display clock for Kepler consistency
         storageData.dataType = DATA_TYPE_BOAT;
         storageData.boatData = incomingBoatData;
         pendingStorageData.push_back(storageData);
@@ -342,9 +402,9 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
 
   case 2: { // Anemometer (callback rapide, pas de logs)
 
-    // Vérification de la taille et copie des données
-    if (len < sizeof(struct_message_Anemometer)) {
-        return; // Paquet trop court, ignorer
+    // Vérification de la taille exacte et copie des données
+    if (len != sizeof(struct_message_Anemometer)) {
+        return; // Paquet invalide, ignorer
     }
     
     memcpy(&incomingAnemometerData, incomingDataPtr, sizeof(incomingAnemometerData));
@@ -366,10 +426,8 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     if (isRecording && sdInitialized) {
       if (xSemaphoreTake(storageDataMutex, 0) == pdTRUE) { // Non-bloquant !
         StorageData storageData;
-        storageData.timestamp = storage.getCurrentTimestamp();
-        if (storageData.timestamp == 0) {
-          storageData.timestamp = millis() / 1000;
-        }
+        storageData.timestamp = millis(); // Display clock for Kepler consistency
+        storageData.windDirection = lastComputedWindDirection;
         storageData.dataType = DATA_TYPE_ANEMOMETER;
         storageData.anemometerData = incomingAnemometerData;
         pendingStorageData.push_back(storageData);
@@ -379,6 +437,38 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     
     break;
   } // Fin case 2
+
+  default: {
+    // Essayer de décoder comme message de bouée GPS autonome
+    if (len == sizeof(struct_message_Buoy)) {
+      memcpy(&incomingBuoyData, incomingDataPtr, sizeof(incomingBuoyData));
+      buoyDataTimestamp = millis();
+      
+      // Stocker les données par bouée pour le calcul de la direction du vent
+      BuoyInfo& buoyInfo = detectedBuoys[incomingBuoyData.buoyId];
+      buoyInfo.data = incomingBuoyData;
+      buoyInfo.lastUpdate = millis();
+      lastBuoyUpdateTimestamp = millis();
+      
+      newData = true;
+      
+      // Stockage sur SD (non-bloquant)
+      if (isRecording && sdInitialized) {
+        if (xSemaphoreTake(storageDataMutex, 0) == pdTRUE) {
+          StorageData storageData;
+          storageData.timestamp = millis(); // Display clock for Kepler consistency
+          storageData.dataType = DATA_TYPE_BUOY;
+          storageData.buoyData = incomingBuoyData;
+          pendingStorageData.push_back(storageData);
+          xSemaphoreGive(storageDataMutex);
+        }
+      }
+    } else {
+      // Message inconnu
+      logger.log("Message ESP-NOW inconnu (taille: " + String(len) + " bytes)");
+    }
+    break;
+  }
   } // Fin switch
 }
 
@@ -422,6 +512,9 @@ void storageTask(void* parameter) {
         if (!dataToWrite.empty()) {
             if (!storage.writeDataBatch(dataToWrite)) {
                 logger.log("Erreur d'écriture sur SD");
+                sdWriteError = true;
+            } else {
+                sdWriteError = false;
             }
         }
         
@@ -638,6 +731,11 @@ void loop() {
 
   M5.update(); // Met à jour l'état des boutons et autres périphériques M5
   
+  // Calculer la direction moyenne du vent à partir des bouées actives
+  float avgWindDir = computeAverageWindDirection();
+  unsigned long windDirTs = (avgWindDir >= 0) ? lastBuoyUpdateTimestamp : 0;
+  if (avgWindDir >= 0) lastComputedWindDirection = avgWindDir;
+  
   // Logs périodiques (toutes les 10 secondes) pour ne pas ralentir le callback
   static unsigned long lastStatsLog = 0;
   if (millis() - lastStatsLog > 10000) {
@@ -675,7 +773,7 @@ void loop() {
     }
     // Afficher les données malgré l'erreur SD si on a des données
     if (millis() % 5000 < 100) { // Toutes les 5 secondes pendant 100ms
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
       delay(100);
       display.showSDError("Toucher écran pour réessayer");
     }
@@ -749,7 +847,7 @@ void loop() {
             syncRTCIfWiFiConnected();
             
             // Redessiner les boutons pour afficher le bouton WiFi en VERT
-            display.drawButtonLabels(isRecording, true, boatMacList.size());
+            display.drawButtonLabels(isRecording, true, boatMacList.size(), sdWriteError);
             
             // L'affichage sera rafraîchi automatiquement après le message
           } else {
@@ -770,7 +868,7 @@ void loop() {
             reinitializeESPNow();
             
             // Redessiner les boutons pour afficher le bouton WiFi en ROUGE
-            display.drawButtonLabels(isRecording, false, boatMacList.size());
+            display.drawButtonLabels(isRecording, false, boatMacList.size(), sdWriteError);
             
             // L'affichage sera rafraîchi automatiquement après le message
           }
@@ -791,7 +889,7 @@ void loop() {
   // MAIS ne pas rafraîchir si le serveur est actif (on veut garder l'URL affichée)
   if (display.needsRefresh() && !fileServer.isServerActive()) {
     logger.log("Refresh automatique après message serveur");
-    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
+    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
   }
  
   // Nettoyer les bateaux avec timeout
@@ -813,7 +911,7 @@ void loop() {
   // pour garder l'URL visible à l'écran
   if (!fileServer.isServerActive()) {
     if (newData) {
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
       
       // Afficher l'identifiant du bateau sélectionné sur l'écran
       if (selectedBoat != nullptr) {
@@ -849,7 +947,7 @@ void loop() {
         lastServerState = currentServerState;
       }
       
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), 0, 0);
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
       
       // Afficher l'identifiant du bateau
       if (selectedBoat != nullptr) {

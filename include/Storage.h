@@ -25,7 +25,8 @@ class Logger;
  */
 enum DataType {
     DATA_TYPE_BOAT = 1,        ///< GPS and navigation data from boat
-    DATA_TYPE_ANEMOMETER = 2   ///< Wind speed and direction data from anemometer
+    DATA_TYPE_ANEMOMETER = 2,  ///< Wind speed and direction data from anemometer
+    DATA_TYPE_BUOY = 3         ///< Autonomous GPS buoy data
 };
 
 /**
@@ -38,10 +39,12 @@ enum DataType {
  */
 struct StorageData {
     unsigned long timestamp;                    ///< Reception timestamp (milliseconds since startup)
-    DataType dataType;                         ///< Type of data (boat or anemometer)
+    DataType dataType;                         ///< Type of data (boat, anemometer, or buoy)
+    float windDirection;                       ///< Average wind direction from buoys (for anemometer entries)
     union {
         struct_message_Boat boatData;          ///< GPS and navigation data (when dataType = DATA_TYPE_BOAT)
         struct_message_Anemometer anemometerData; ///< Wind data (when dataType = DATA_TYPE_ANEMOMETER)
+        struct_message_Buoy buoyData;          ///< Autonomous buoy data (when dataType = DATA_TYPE_BUOY)
     };
 };
 

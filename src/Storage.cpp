@@ -136,66 +136,10 @@ String Storage::generateFileName() {
 }
 
 bool Storage::writeData(const StorageData& data) {
-    // Check that SD card is initialized
-    if (!sdInitialized_) {
-        log("SD card not initialized");
-        return false;
-    }
-    
-    // Initialize filename if not already done
-    if (currentFileName_.isEmpty()) {
-        if (!initializeFileName()) {
-            log("Error: Unable to initialize filename");
-            return false;
-        }
-    }
-    
-    // Open file in append mode to add data at the end
-    File file = SD.open(currentFileName_, FILE_APPEND);
-    if (!file) {
-        log("Error opening file: " + currentFileName_);
-        return false;
-    }
-    
-    // Create JSON object with appropriate size for the data
-    DynamicJsonDocument doc(512);
-    doc["timestamp"] = data.timestamp;
-    doc["type"] = data.dataType;
-    
-    // Serialize data based on type
-    if (data.dataType == DATA_TYPE_BOAT) {
-        // Serialize boat data into nested JSON object
-        JsonObject boat = doc.createNestedObject("boat");
-        boat["messageType"] = data.boatData.messageType;
-        boat["name"] = data.boatData.name;
-        boat["sequenceNumber"] = data.boatData.sequenceNumber;
-        boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
-        boat["latitude"] = data.boatData.latitude;
-        boat["longitude"] = data.boatData.longitude;
-        boat["speed"] = data.boatData.speed;
-        boat["heading"] = data.boatData.heading;
-        boat["satellites"] = data.boatData.satellites;
-    } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
-        // Serialize anemometer data into nested JSON object
-        JsonObject anemometer = doc.createNestedObject("anemometer");
-        anemometer["messageType"] = data.anemometerData.messageType;
-        anemometer["anemometerId"] = data.anemometerData.anemometerId;
-        anemometer["sequenceNumber"] = data.anemometerData.sequenceNumber;
-        anemometer["windSpeed"] = data.anemometerData.windSpeed;
-        
-        // Add MAC address for device identification
-        JsonArray macArray = anemometer.createNestedArray("macAddress");
-        for (int i = 0; i < 6; i++) {
-            macArray.add(data.anemometerData.macAddress[i]);
-        }
-    }
-    
-    // Write JSON to file followed by newline
-    serializeJson(doc, file);
-    file.println(); // Newline to separate JSON entries
-    
-    file.close();
-    return true;
+    // Delegate to writeDataBatch for consistent Kepler-compatible format
+    std::vector<StorageData> batch;
+    batch.push_back(data);
+    return writeDataBatch(batch);
 }
 
 bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
@@ -215,56 +159,103 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
         }
     }
     
-    // Open file in append mode for batch writing
-    File file = SD.open(currentFileName_, FILE_APPEND);
-    if (!file) {
-        log("Error opening file for batch write: " + currentFileName_);
-        return false;
+    // Read Display RTC once for consistent timestamps across all entries
+    auto dt = M5.Rtc.getDateTime();
+    unsigned long millisNow = millis();
+    
+    // Convert RTC datetime to epoch for arithmetic
+    struct tm rtcTm = {};
+    rtcTm.tm_year = dt.date.year - 1900;
+    rtcTm.tm_mon = dt.date.month - 1;
+    rtcTm.tm_mday = dt.date.date;
+    rtcTm.tm_hour = dt.time.hours;
+    rtcTm.tm_min = dt.time.minutes;
+    rtcTm.tm_sec = dt.time.seconds;
+    rtcTm.tm_isdst = -1;
+    time_t rtcEpoch = mktime(&rtcTm);
+    
+    // Open file as proper JSON array: [{...},{...},...]
+    // First batch creates file with "[", subsequent batches
+    // seek before closing "]" and append with ","
+    File file;
+    bool isNewFile = true;
+    
+    if (SD.exists(currentFileName_)) {
+        // Try opening in read+write mode to update existing array
+        file = SD.open(currentFileName_, "r+");
+        if (file && file.size() >= 3) {
+            isNewFile = false;
+            // Seek before closing "\n]" (2 bytes from end)
+            file.seek(file.size() - 2);
+            file.print(",\n");
+        } else {
+            // File exists but is too small/corrupt - recreate
+            if (file) file.close();
+            file = SD.open(currentFileName_, FILE_WRITE);
+            if (!file) {
+                log("Error creating file: " + currentFileName_);
+                return false;
+            }
+            file.print("[\n");
+        }
+    } else {
+        // New file - start JSON array
+        file = SD.open(currentFileName_, FILE_WRITE);
+        if (!file) {
+            log("Error creating file: " + currentFileName_);
+            return false;
+        }
+        file.print("[\n");
     }
     
-    // Write all data in a single file operation
-    // This reduces latency and SD card wear
-    for (const auto& data : dataList) {
-        // Create JSON document for each entry
-        DynamicJsonDocument doc(512);
-        doc["timestamp"] = data.timestamp;
-        doc["type"] = data.dataType;
+    // Write all entries as flat Kepler-compatible JSON objects
+    for (size_t i = 0; i < dataList.size(); i++) {
+        if (i > 0) file.print(",\n");
         
-        // Serialize data based on type
+        const auto& data = dataList[i];
+        
+        // Compute entry's epoch timestamp from millis offset vs Display RTC
+        long offsetSec = (long)((millisNow - data.timestamp) / 1000);
+        time_t entryEpoch = rtcEpoch - offsetSec;
+        
+        // Create flat JSON document (Kepler-compatible: lat/lon at top level)
+        JsonDocument doc;
+        doc["datetime"] = (long long)entryEpoch;
+        
         if (data.dataType == DATA_TYPE_BOAT) {
-            // Serialize boat data into nested JSON object
-            JsonObject boat = doc.createNestedObject("boat");
-            boat["messageType"] = data.boatData.messageType;
-            boat["name"] = data.boatData.name;
-            boat["sequenceNumber"] = data.boatData.sequenceNumber;
-            boat["gpsTimestamp"] = data.boatData.gpsTimestamp;
-            boat["latitude"] = data.boatData.latitude;
-            boat["longitude"] = data.boatData.longitude;
-            boat["speed"] = data.boatData.speed;
-            boat["heading"] = data.boatData.heading;
-            boat["satellites"] = data.boatData.satellites;
+            doc["device_type"] = "boat";
+            doc["device_name"] = data.boatData.name;
+            doc["latitude"] = data.boatData.latitude;
+            doc["longitude"] = data.boatData.longitude;
+            doc["speed"] = data.boatData.speed;
+            doc["heading"] = data.boatData.heading;
+            doc["satellites"] = data.boatData.satellites;
+            doc["sequenceNumber"] = data.boatData.sequenceNumber;
         } else if (data.dataType == DATA_TYPE_ANEMOMETER) {
-            // Serialize anemometer data into nested JSON object
-            JsonObject anemometer = doc.createNestedObject("anemometer");
-            anemometer["messageType"] = data.anemometerData.messageType;
-            anemometer["anemometerId"] = data.anemometerData.anemometerId;
-            anemometer["sequenceNumber"] = data.anemometerData.sequenceNumber;
-            anemometer["windSpeed"] = data.anemometerData.windSpeed;
-            
-            // Add MAC address for device identification
-            JsonArray macArray = anemometer.createNestedArray("macAddress");
-            for (int i = 0; i < 6; i++) {
-                macArray.add(data.anemometerData.macAddress[i]);
-            }
+            doc["device_type"] = "anemometer";
+            doc["device_name"] = data.anemometerData.anemometerId;
+            doc["windSpeed"] = data.anemometerData.windSpeed;
+            doc["windDirection"] = data.windDirection;
+            doc["sequenceNumber"] = data.anemometerData.sequenceNumber;
+        } else if (data.dataType == DATA_TYPE_BUOY) {
+            doc["device_type"] = "buoy";
+            String buoyName = "Buoy_" + String(data.buoyData.buoyId);
+            doc["device_name"] = buoyName;
+            doc["latitude"] = data.buoyData.latitude;
+            doc["longitude"] = data.buoyData.longitude;
+            doc["autoPilotThrottleCmde"] = data.buoyData.autoPilotThrottleCmde;
+            doc["autoPilotTrueHeadingCmde"] = data.buoyData.autoPilotTrueHeadingCmde;
+            doc["forcedThrottleCmde"] = data.buoyData.forcedThrottleCmde;
+            doc["forcedTrueHeadingCmde"] = data.buoyData.forcedTrueHeadingCmde;
         }
         
-        // Write JSON to file with line separator
         serializeJson(doc, file);
-        file.println();
     }
     
+    // Close the JSON array - file is always a valid JSON
+    file.print("\n]");
     file.close();
-    log("Batch of " + String(dataList.size()) + " entries written to SD");
+    log("Batch of " + String(dataList.size()) + " Kepler entries written to SD");
     return true;
 }
 

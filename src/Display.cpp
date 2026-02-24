@@ -42,7 +42,7 @@ void Display::showSplashScreen() {
     M5.Lcd.drawString("OpenSailingRC", centerX, centerY - 80);
     M5.Lcd.drawString("Display", centerX, centerY - 40);
     M5.Lcd.setTextSize(3);
-    M5.Lcd.drawString("V1.0.4", centerX, centerY + 10);
+    M5.Lcd.drawString("V1.0.5", centerX, centerY + 10);
     delay(2000);
     M5.Lcd.fillScreen(BLACK);
 }
@@ -87,7 +87,7 @@ void Display::drawSpeedBar(float speedKnots) {
  * - Wind speed from buoy sensor
  * - GPS recording status indicator (green "RECORD" button when active)
  */
-void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp) {
+void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp, bool hasSDError) {
     float speedKnots = boatData.speed * 1.94384;
     float windSpeedKnots = anemometerData.windSpeed * 1.94384;
     
@@ -131,7 +131,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         M5.Lcd.print("DEG");
         
         // Dessiner les boutons au premier affichage
-        drawButtonLabels(isRecording, isServerActive, boatCount);
+        drawButtonLabels(isRecording, isServerActive, boatCount, hasSDError);
         lastIsRecording = isRecording;
         lastIsServerActive = isServerActive;
         lastBoatCount = boatCount;
@@ -318,11 +318,12 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     }
     
     // Redessiner les boutons uniquement si leur état a changé
-    if (isRecording != lastIsRecording || isServerActive != lastIsServerActive || boatCount != lastBoatCount) {
-        drawButtonLabels(isRecording, isServerActive, boatCount);
+    if (isRecording != lastIsRecording || isServerActive != lastIsServerActive || boatCount != lastBoatCount || hasSDError != lastHasSDError) {
+        drawButtonLabels(isRecording, isServerActive, boatCount, hasSDError);
         lastIsRecording = isRecording;
         lastIsServerActive = isServerActive;
         lastBoatCount = boatCount;
+        lastHasSDError = hasSDError;
     }
 }
 
@@ -399,7 +400,7 @@ void Display::showFileServerStatus(bool active, const String& ipAddress) {
  * - Right button: File server control (green if active, red if stopped)
  * - Middle area: Reserved/unused
  */
-void Display::drawButtonLabels(bool isRecording, bool isServerActive, int boatCount) {
+void Display::drawButtonLabels(bool isRecording, bool isServerActive, int boatCount, bool hasSDError) {
     // Debug: Afficher l'état des boutons
     static bool lastServerActive = false;
     static bool lastRecording = false;
@@ -423,13 +424,23 @@ void Display::drawButtonLabels(bool isRecording, bool isServerActive, int boatCo
     int button2X = 107;      // Position X du 2ème bouton
     int button3X = 213;      // Position X du 3ème bouton
     
-    // Bouton 1 (gauche) - Enregistrement GPS
-    M5.Lcd.fillRect(0, buttonY, button1Width, buttonHeight, isRecording ? RED : NAVY);
-    M5.Lcd.drawRect(0, buttonY, button1Width, buttonHeight, WHITE);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextDatum(MC_DATUM);
-    M5.Lcd.setTextSize(2);
-    M5.Lcd.drawString(isRecording ? "STOP" : "RECORD", button1Width/2, buttonY + buttonHeight/2);
+    // Bouton 1 (gauche) - Enregistrement GPS ou Erreur SD
+    if (hasSDError && isRecording) {
+        // Erreur d'écriture SD : afficher ERROR SD en rouge sur noir
+        M5.Lcd.fillRect(0, buttonY, button1Width, buttonHeight, BLACK);
+        M5.Lcd.drawRect(0, buttonY, button1Width, buttonHeight, RED);
+        M5.Lcd.setTextColor(RED);
+        M5.Lcd.setTextDatum(MC_DATUM);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.drawString("ERROR SD", button1Width/2, buttonY + buttonHeight/2);
+    } else {
+        M5.Lcd.fillRect(0, buttonY, button1Width, buttonHeight, isRecording ? RED : NAVY);
+        M5.Lcd.drawRect(0, buttonY, button1Width, buttonHeight, WHITE);
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.setTextDatum(MC_DATUM);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.drawString(isRecording ? "STOP" : "RECORD", button1Width/2, buttonY + buttonHeight/2);
+    }
     
     // Bouton 2 (centre) - Sélection bateau
     if (boatCount > 1) {
