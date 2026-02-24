@@ -28,11 +28,14 @@ private:
   bool lastHasSDError = false;
   int lastBatteryPercent = -1;
   bool lastIsCharging = false;
+  String lastBoatDisplayName = "";
+  int lastSelectedBoatIdx = -1;
+  int lastTotalBoatCount = -1;
   
 public:
   void showSplashScreen();
   void drawSpeedBar(float speedKnots);
-  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0, bool hasSDError = false);
+  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0, bool hasSDError = false, int selectedBoatIndex = 0);
   void drawCompass(float heading);
   void showFileServerStatus(bool active, const String& ipAddress);
   void updateServerMessageDisplay(); // Nouvelle fonction pour l'affichage non-bloquant

@@ -773,7 +773,7 @@ void loop() {
     }
     // Afficher les données malgré l'erreur SD si on a des données
     if (millis() % 5000 < 100) { // Toutes les 5 secondes pendant 100ms
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
       delay(100);
       display.showSDError("Toucher écran pour réessayer");
     }
@@ -889,7 +889,7 @@ void loop() {
   // MAIS ne pas rafraîchir si le serveur est actif (on veut garder l'URL affichée)
   if (display.needsRefresh() && !fileServer.isServerActive()) {
     logger.log("Refresh automatique après message serveur");
-    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
+    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
   }
  
   // Nettoyer les bateaux avec timeout
@@ -911,25 +911,7 @@ void loop() {
   // pour garder l'URL visible à l'écran
   if (!fileServer.isServerActive()) {
     if (newData) {
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
-      
-      // Afficher l'identifiant du bateau sélectionné sur l'écran
-      if (selectedBoat != nullptr) {
-        M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.setCursor(10, 10);
-        M5.Lcd.print(selectedBoat->boatId);
-        M5.Lcd.print(" (");
-        M5.Lcd.print(selectedBoatIndex + 1);
-        M5.Lcd.print("/");
-        M5.Lcd.print(boatMacList.size());
-        M5.Lcd.print(")");
-      } else {
-        M5.Lcd.setTextColor(TFT_RED, TFT_BLACK);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.setCursor(10, 10);
-        M5.Lcd.print("NO BOAT  ");
-      }
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
       
       newData = false;
     }
@@ -947,20 +929,7 @@ void loop() {
         lastServerState = currentServerState;
       }
       
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError);
-      
-      // Afficher l'identifiant du bateau
-      if (selectedBoat != nullptr) {
-        M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.setCursor(10, 10);
-        M5.Lcd.print(selectedBoat->boatId);
-        M5.Lcd.print(" (");
-        M5.Lcd.print(selectedBoatIndex + 1);
-        M5.Lcd.print("/");
-        M5.Lcd.print(boatMacList.size());
-        M5.Lcd.print(")");
-      }
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
     }
   } else {
     // Serveur actif : consommer le flag newData mais ne pas rafraîchir l'écran

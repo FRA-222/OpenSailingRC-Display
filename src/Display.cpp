@@ -87,9 +87,12 @@ void Display::drawSpeedBar(float speedKnots) {
  * - Wind speed from buoy sensor
  * - GPS recording status indicator (green "RECORD" button when active)
  */
-void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp, bool hasSDError) {
+void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp, bool hasSDError, int selectedBoatIndex) {
     float speedKnots = boatData.speed * 1.94384;
     float windSpeedKnots = anemometerData.windSpeed * 1.94384;
+    
+    // Toujours forcer le datum TL (top-left) car drawButtonLabels le change en MC_DATUM
+    M5.Lcd.setTextDatum(TL_DATUM);
     
     // Dessiner les labels fixes une seule fois au démarrage
     if (!labelsDrawn) {
@@ -145,15 +148,45 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     bool windDataValid = (currentTime - anemometerDataTimestamp) < 5000;
     bool windDirValid = (currentTime - windDirTimestamp) < 5000;
     
+    // Afficher le nom du bateau sélectionné + index en haut à gauche
+    {
+        String boatDisplayName = String(boatData.name).substring(0, 6);
+        boatDisplayName.trim();
+        int totalBoats = boatCount > 0 ? boatCount : 0;
+        int boatIdx = selectedBoatIndex + 1;
+        if (boatDisplayName != lastBoatDisplayName || boatIdx != lastSelectedBoatIdx || totalBoats != lastTotalBoatCount) {
+            // Effacer la zone du nom de bateau en haut à gauche
+            M5.Lcd.fillRect(0, 0, 135, 25, BLACK);
+            if (boatDisplayName.length() > 0 && totalBoats > 0) {
+                M5.Lcd.setTextDatum(TL_DATUM);
+                M5.Lcd.setTextColor(YELLOW);
+                M5.Lcd.setTextSize(2);
+                M5.Lcd.setCursor(5, 5);
+                M5.Lcd.print(boatDisplayName);
+                M5.Lcd.setTextColor(WHITE);
+                M5.Lcd.printf(" %d/%d", boatIdx, totalBoats);
+            } else {
+                M5.Lcd.setTextDatum(TL_DATUM);
+                M5.Lcd.setTextColor(RED);
+                M5.Lcd.setTextSize(2);
+                M5.Lcd.setCursor(5, 5);
+                M5.Lcd.print("NO BOAT");
+            }
+            lastBoatDisplayName = boatDisplayName;
+            lastSelectedBoatIdx = boatIdx;
+            lastTotalBoatCount = totalBoats;
+        }
+    }
+    
     // Mettre à jour uniquement la vitesse si elle a changé ou si le timeout a changé
     if (abs(speedKnots - lastSpeedKnots) > 0.05 || (boatDataValid != (lastSpeedKnots > -998))) {
         // Effacer l'ancienne valeur
-        M5.Lcd.fillRect(120, 36, 115, 28, BLACK);
+        M5.Lcd.fillRect(120, 40, 115, 24, BLACK);
         
         // Dessiner la nouvelle valeur
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(3);
-        M5.Lcd.setCursor(120, 50);
+        M5.Lcd.setCursor(120, 40);
         if (boatDataValid) {
             M5.Lcd.printf("%.1f", speedKnots);
             lastSpeedKnots = speedKnots;
@@ -166,12 +199,12 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     // Mettre à jour uniquement le cap si il a changé ou si le timeout a changé
     if (abs(boatData.heading - lastHeading) > 0.5 || (boatDataValid != (lastHeading > -998))) {
         // Effacer l'ancienne valeur
-        M5.Lcd.fillRect(120, 76, 115, 28, BLACK);
+        M5.Lcd.fillRect(120, 80, 115, 24, BLACK);
         
         // Dessiner la nouvelle valeur
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(3);
-        M5.Lcd.setCursor(120, 90);
+        M5.Lcd.setCursor(120, 80);
         if (boatDataValid) {
             M5.Lcd.printf("%.0f", boatData.heading);
             lastHeading = boatData.heading;
@@ -210,7 +243,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         M5.Lcd.drawLine(satX + 11, satY + 10, satX + 12, satY + 10, BLUE);
         
         // Dessiner le nombre de satellites avec un espace
-        M5.Lcd.setCursor(265, 8);
+        M5.Lcd.setCursor(265, 2);
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(2);
         M5.Lcd.printf("%d", boatData.satellites);
@@ -223,14 +256,14 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     bool isCharging = M5.Power.isCharging();
     
     if (batteryPercent != lastBatteryPercent || isCharging != lastIsCharging) {
-        // Effacer la zone centrale en haut
-        M5.Lcd.fillRect(90, 0, 140, 25, BLACK);
+        // Effacer la zone batterie (décalée à droite)
+        M5.Lcd.fillRect(140, 0, 100, 25, BLACK);
         
-        // Position centrée (écran 320px de large)
-        int centerX = 160;
+        // Position décalée à droite
+        int battCenterX = 190;
         
         // Dessiner le picto batterie à gauche du pourcentage
-        int batteryX = centerX - 45;
+        int batteryX = battCenterX - 35;
         int batteryY = 2;  // Remonté pour aligner avec le texte (Y plus petit = plus haut)
         
         // Dessiner le corps de la batterie (rectangle)
@@ -264,7 +297,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         }
         
         // Dessiner le pourcentage à droite du picto (avec couleur selon niveau)
-        M5.Lcd.setCursor(batteryX + 32, 8);
+        M5.Lcd.setCursor(batteryX + 32, 2);
         M5.Lcd.setTextSize(2);
         
         if (batteryPercent > 50) {
@@ -284,12 +317,12 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     // Mettre à jour uniquement la vitesse du vent si elle a changé ou si le timeout a changé
     if (abs(windSpeedKnots - lastWindSpeedKnots) > 0.05 || (windDataValid != (lastWindSpeedKnots > -998))) {
         // Effacer l'ancienne valeur
-        M5.Lcd.fillRect(120, 116, 115, 28, BLACK);
+        M5.Lcd.fillRect(120, 120, 115, 24, BLACK);
         
         // Dessiner la nouvelle valeur
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(3);
-        M5.Lcd.setCursor(120, 130);
+        M5.Lcd.setCursor(120, 120);
         if (windDataValid) {
             M5.Lcd.printf("%.1f", windSpeedKnots);
             lastWindSpeedKnots = windSpeedKnots;
@@ -302,12 +335,12 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     // Mettre à jour la direction du vent si elle a changé ou si le timeout a changé
     if (abs(windDirection - lastWindDirection) > 0.5 || (windDirValid != (lastWindDirection > -998))) {
         // Effacer l'ancienne valeur
-        M5.Lcd.fillRect(120, 156, 115, 28, BLACK);
+        M5.Lcd.fillRect(120, 160, 115, 24, BLACK);
         
         // Dessiner la nouvelle valeur
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(3);
-        M5.Lcd.setCursor(120, 170);
+        M5.Lcd.setCursor(120, 160);
         if (windDirValid) {
             M5.Lcd.printf("%.0f", windDirection);
             lastWindDirection = windDirection;
@@ -592,6 +625,10 @@ void Display::forceFullRefresh() {
     lastIsRecording = false;
     lastIsServerActive = false;
     lastBoatCount = 0;
+    lastHasSDError = false;
+    lastBoatDisplayName = "";
+    lastSelectedBoatIdx = -1;
+    lastTotalBoatCount = -1;
     
     // Effacer l'écran
     M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);
