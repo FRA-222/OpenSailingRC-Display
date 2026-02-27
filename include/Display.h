@@ -17,10 +17,10 @@ private:
   
   // Variables statiques pour l'optimisation de l'affichage
   bool labelsDrawn = false;
-  float lastSpeedKnots = -999;
+  float lastSpeedKmh = -999;
   float lastHeading = -999;
   uint8_t lastSatellites = 255;
-  float lastWindSpeedKnots = -999;
+  float lastWindSpeedKmh = -999;
   float lastWindDirection = -999;
   bool lastIsRecording = false;
   bool lastIsServerActive = false;
@@ -34,7 +34,7 @@ private:
   
 public:
   void showSplashScreen();
-  void drawSpeedBar(float speedKnots);
+  void drawSpeedBar(float speedKmh);
   void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0, bool hasSDError = false, int selectedBoatIndex = 0);
   void drawCompass(float heading);
   void showFileServerStatus(bool active, const String& ipAddress);

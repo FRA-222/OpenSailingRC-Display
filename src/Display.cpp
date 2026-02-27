@@ -42,7 +42,7 @@ void Display::showSplashScreen() {
     M5.Lcd.drawString("OpenSailingRC", centerX, centerY - 80);
     M5.Lcd.drawString("Display", centerX, centerY - 40);
     M5.Lcd.setTextSize(3);
-    M5.Lcd.drawString("V1.0.5", centerX, centerY + 10);
+    M5.Lcd.drawString("V1.0.6", centerX, centerY + 10);
     delay(2000);
     M5.Lcd.fillScreen(BLACK);
 }
@@ -50,22 +50,22 @@ void Display::showSplashScreen() {
 /**
  * @brief Draws a vertical speed bar indicator on the right side of the screen
  * 
- * @param speedKnots Current boat speed in knots
+ * @param speedKmh Current boat speed in km/h
  * 
- * Creates a color-coded vertical bar showing speed relative to maximum (6 knots).
- * Colors: Green (0-2 knots), Orange (2-4 knots), Red (>4 knots).
+ * Creates a color-coded vertical bar showing speed relative to maximum (12 km/h).
+ * Colors: Green (0-4 km/h), Orange (4-8 km/h), Red (>8 km/h).
  * Bar is positioned at the right edge of screen with white border.
  */
 
-void Display::drawSpeedBar(float speedKnots) {
+void Display::drawSpeedBar(float speedKmh) {
     M5.Lcd.fillRect(screenWidth - 20, 100, 10, 120, BLACK);
-    float maxSpeed = 6.0;
-    int barHeight = (int)((speedKnots / maxSpeed) * 120);
+    float maxSpeed = 12.0;
+    int barHeight = (int)((speedKmh / maxSpeed) * 120);
     if (barHeight > 120) barHeight = 120;
     uint32_t barColor = GREEN;
-    if (speedKnots > 2.0 && speedKnots <= 4.0) {
+    if (speedKmh > 4.0 && speedKmh <= 8.0) {
       barColor = ORANGE;
-    } else if (speedKnots > 4.0) {
+    } else if (speedKmh > 8.0) {
       barColor = RED;
     }
     int barY = 220 - barHeight;
@@ -81,15 +81,15 @@ void Display::drawSpeedBar(float speedKnots) {
  * 
  * Displays:
  * - Boat identifier (F222) in red
- * - Current speed in knots with color coding
+ * - Current speed in km/h with color coding
  * - Boat heading in degrees
  * - GPS satellite count
  * - Wind speed from buoy sensor
  * - GPS recording status indicator (green "RECORD" button when active)
  */
 void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp, bool hasSDError, int selectedBoatIndex) {
-    float speedKnots = boatData.speed * 1.94384;
-    float windSpeedKnots = anemometerData.windSpeed * 1.94384;
+    float speedKmh = boatData.speed * 3.6;
+    float windSpeedKmh = anemometerData.windSpeed * 3.6;
     
     // Toujours forcer le datum TL (top-left) car drawButtonLabels le change en MC_DATUM
     M5.Lcd.setTextDatum(TL_DATUM);
@@ -108,7 +108,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(240, 40);
-        M5.Lcd.print("KTS");
+        M5.Lcd.print("KMH");
         
         // Ligne 2 - BOAT orientation
         M5.Lcd.setTextColor(WHITE);
@@ -125,7 +125,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(240, 120);
-        M5.Lcd.print("KTS");
+        M5.Lcd.print("KMH");
         
         // Ligne 4 - WIND orientation
         M5.Lcd.setTextColor(WHITE);
@@ -179,7 +179,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     }
     
     // Mettre à jour uniquement la vitesse si elle a changé ou si le timeout a changé
-    if (abs(speedKnots - lastSpeedKnots) > 0.05 || (boatDataValid != (lastSpeedKnots > -998))) {
+    if (abs(speedKmh - lastSpeedKmh) > 0.05 || (boatDataValid != (lastSpeedKmh > -998))) {
         // Effacer l'ancienne valeur
         M5.Lcd.fillRect(120, 40, 115, 24, BLACK);
         
@@ -188,11 +188,11 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(120, 40);
         if (boatDataValid) {
-            M5.Lcd.printf("%.1f", speedKnots);
-            lastSpeedKnots = speedKnots;
+            M5.Lcd.printf("%.1f", speedKmh);
+            lastSpeedKmh = speedKmh;
         } else {
             M5.Lcd.print("---");
-            lastSpeedKnots = -998; // Valeur spéciale pour indiquer timeout
+            lastSpeedKmh = -998; // Valeur spéciale pour indiquer timeout
         }
     }
     
@@ -315,7 +315,7 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
     }
     
     // Mettre à jour uniquement la vitesse du vent si elle a changé ou si le timeout a changé
-    if (abs(windSpeedKnots - lastWindSpeedKnots) > 0.05 || (windDataValid != (lastWindSpeedKnots > -998))) {
+    if (abs(windSpeedKmh - lastWindSpeedKmh) > 0.05 || (windDataValid != (lastWindSpeedKmh > -998))) {
         // Effacer l'ancienne valeur
         M5.Lcd.fillRect(120, 120, 115, 24, BLACK);
         
@@ -324,11 +324,11 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(120, 120);
         if (windDataValid) {
-            M5.Lcd.printf("%.1f", windSpeedKnots);
-            lastWindSpeedKnots = windSpeedKnots;
+            M5.Lcd.printf("%.1f", windSpeedKmh);
+            lastWindSpeedKmh = windSpeedKmh;
         } else {
             M5.Lcd.print("---");
-            lastWindSpeedKnots = -998;
+            lastWindSpeedKmh = -998;
         }
     }
     
@@ -549,10 +549,10 @@ void Display::updateServerMessageDisplay() {
         
         // Forcer un rafraîchissement complet de l'écran
         labelsDrawn = false;
-        lastSpeedKnots = -999;
+        lastSpeedKmh = -999;
         lastHeading = -999;
         lastSatellites = -1;
-        lastWindSpeedKnots = -999;
+        lastWindSpeedKmh = -999;
         lastWindDirection = -999;
         lastBatteryPercent = -1;
         lastIsCharging = false;
@@ -617,10 +617,10 @@ bool Display::needsRefresh() {
 void Display::forceFullRefresh() {
     // Réinitialiser toutes les variables d'état pour forcer un redessin complet
     labelsDrawn = false;
-    lastSpeedKnots = -999;
+    lastSpeedKmh = -999;
     lastHeading = -999;
     lastSatellites = 255;
-    lastWindSpeedKnots = -999;
+    lastWindSpeedKmh = -999;
     lastWindDirection = -999;
     lastIsRecording = false;
     lastIsServerActive = false;
