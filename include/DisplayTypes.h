@@ -42,6 +42,8 @@ enum tEtatsNav {
     NAV_TARGET
 };
 
+// IMPORTANT: Cette struct doit être identique à BuoyState dans
+// ESPNowDataLinkManagement.h du projet Autonomous-GPS-Buoy
 typedef struct struct_message_Buoy {
     uint8_t buoyId;                     // Buoy ID (0-5)
     uint32_t timestamp;                 // Message timestamp
@@ -71,15 +73,6 @@ typedef struct struct_message_Buoy {
     // Autopilot commands
     int8_t autoPilotThrottleCmde;       // Autopilot throttle command (-100 to +100%)
     float autoPilotTrueHeadingCmde;     // Autopilot heading command in degrees
-    int8_t autoPilotRudderCmde;         // Autopilot rudder command (-100 to +100%)
-    
-    // Forced commands
-    int8_t forcedThrottleCmde;          // Forced throttle command (-100 to +100%)
-    bool forcedThrottleCmdeOk;          // Forced throttle command active flag
-    float forcedTrueHeadingCmde;        // Forced heading command in degrees
-    bool forcedTrueHeadingCmdeOk;       // Forced heading command active flag
-    int8_t forcedRudderCmde;            // Forced rudder command (-100 to +100%)
-    bool forcedRudderCmdeOk;            // Forced rudder command active flag
 } struct_message_Buoy;
 
 // Constantes d'affichage
