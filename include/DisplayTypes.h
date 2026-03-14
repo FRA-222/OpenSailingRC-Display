@@ -12,6 +12,7 @@ typedef struct struct_message_Boat {
     float speed;     // en noeuds (knots)
     float heading;   // en degrés (0=N, 90=E, 180=S, 270=W)
     uint8_t satellites; // nombre de satellites visibles
+    uint8_t ttl;     // Time-To-Live: 1=original, 0=relayed by Hub
 } struct_message_Boat;
 
 typedef struct struct_message_Anemometer {
@@ -21,6 +22,7 @@ typedef struct struct_message_Anemometer {
     uint32_t sequenceNumber; // Sequence number for packet loss detection
     float windSpeed;         // Wind speed value
     unsigned long timestamp; // Timestamp of the measurement
+    uint8_t ttl;             // Time-To-Live: 1=original, 0=relayed by Hub
 } struct_message_Anemometer;
 
 // Énumérations pour les bouées GPS autonomes
@@ -73,6 +75,10 @@ typedef struct struct_message_Buoy {
     // Autopilot commands
     int8_t autoPilotThrottleCmde;       // Autopilot throttle command (-100 to +100%)
     float autoPilotTrueHeadingCmde;     // Autopilot heading command in degrees
+
+    // v2 additions for Hub relay
+    uint16_t sequenceNumber;            // Sequence number for deduplication
+    uint8_t ttl;                        // Time-To-Live: 1=original, 0=relayed by Hub
 } struct_message_Buoy;
 
 // Constantes d'affichage

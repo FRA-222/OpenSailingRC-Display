@@ -338,27 +338,37 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     memcpy(&incomingBoatData, incomingDataPtr, sizeof(incomingBoatData));
     boatDataTimestamp = millis(); // Timestamp de réception
     
-    // Conversion MAC ultra-rapide (buffer statique, sans allocation heap)
-    static char macBuf[18];
-    snprintf(macBuf, sizeof(macBuf), "%02X:%02X:%02X:%02X:%02X:%02X",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    String macStr(macBuf);
+    // Identification du bateau par son nom embarqué (et non la MAC ESP-NOW)
+    // Car le Hub retransmet avec sa propre MAC, pas celle du bateau original
+    String boatKey(incomingBoatData.name);
+    if (boatKey.length() == 0) {
+        // Fallback sur MAC si le nom est vide
+        static char macBuf[18];
+        snprintf(macBuf, sizeof(macBuf), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        boatKey = String(macBuf);
+    }
     
     // Vérifier si c'est un nouveau bateau
-    bool isNewBoat = (detectedBoats.find(macStr) == detectedBoats.end());
+    bool isNewBoat = (detectedBoats.find(boatKey) == detectedBoats.end());
     
     if (isNewBoat) {
-        boatMacList.push_back(macStr);
+        boatMacList.push_back(boatKey);
     }
     
     // Mettre à jour ou créer l'entrée du bateau
-    BoatInfo& boat = detectedBoats[macStr];
+    BoatInfo& boat = detectedBoats[boatKey];
     
-    // Détection rapide de paquets perdus
+    // Détection rapide de paquets perdus et déduplication
     if (!isNewBoat && boat.receivedPackets > 0) {
-        uint32_t expectedSeq = boat.lastSequenceNumber + 1;
         uint32_t receivedSeq = incomingBoatData.sequenceNumber;
         
+        // Déduplication : ignorer les paquets déjà traités (direct + relayé par Hub)
+        if (receivedSeq == boat.lastSequenceNumber) {
+            break; // Paquet dupliqué, ignorer
+        }
+        
+        uint32_t expectedSeq = boat.lastSequenceNumber + 1;
         if (receivedSeq > expectedSeq) {
             boat.lostPackets += (receivedSeq - expectedSeq);
         }
@@ -376,7 +386,7 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     memcpy(boat.macAddress, mac, 6);
     boat.lastUpdate = millis();
     boat.boatId = (boatMacList.size() > 1 ? 
-                   std::find(boatMacList.begin(), boatMacList.end(), macStr) - boatMacList.begin() + 1 : 
+                   std::find(boatMacList.begin(), boatMacList.end(), boatKey) - boatMacList.begin() + 1 : 
                    1);
     
     newData = true;
@@ -408,6 +418,14 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     }
     
     memcpy(&incomingAnemometerData, incomingDataPtr, sizeof(incomingAnemometerData));
+    
+    // Déduplication : ignorer si même sequenceNumber que le dernier reçu
+    // (paquet reçu en direct + relayé par Hub)
+    static uint32_t lastAnemometerSequence = 0;
+    if (incomingAnemometerData.sequenceNumber == lastAnemometerSequence && lastAnemometerSequence != 0) {
+        break; // Paquet dupliqué, ignorer
+    }
+    lastAnemometerSequence = incomingAnemometerData.sequenceNumber;
     
     // Si l'anemometerId est vide, générer depuis l'adresse MAC
     if (strlen(incomingAnemometerData.anemometerId) == 0) {
@@ -442,10 +460,19 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
     // Essayer de décoder comme message de bouée GPS autonome
     if (len == sizeof(struct_message_Buoy)) {
       memcpy(&incomingBuoyData, incomingDataPtr, sizeof(incomingBuoyData));
+      
+      // Déduplication par sequenceNumber et buoyId
+      // Ignorer les paquets déjà traités (direct + relayé par Hub)
+      BuoyInfo& buoyInfo = detectedBuoys[incomingBuoyData.buoyId];
+      if (buoyInfo.lastUpdate > 0 && 
+          incomingBuoyData.sequenceNumber == buoyInfo.data.sequenceNumber &&
+          incomingBuoyData.sequenceNumber != 0) {
+          break; // Paquet dupliqué, ignorer
+      }
+      
       buoyDataTimestamp = millis();
       
       // Stocker les données par bouée pour le calcul de la direction du vent
-      BuoyInfo& buoyInfo = detectedBuoys[incomingBuoyData.buoyId];
       buoyInfo.data = incomingBuoyData;
       buoyInfo.lastUpdate = millis();
       lastBuoyUpdateTimestamp = millis();
