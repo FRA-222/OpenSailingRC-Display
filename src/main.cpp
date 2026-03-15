@@ -831,6 +831,9 @@ void loop() {
         
         // Toggle de l'enregistrement GPS
         isRecording = !isRecording;
+        if (isRecording) {
+          storage.startNewRecording();
+        }
         logger.log(String("Enregistrement GPS ") + (isRecording ? "activé" : "désactivé"));
         // L'affichage sera rafraîchi automatiquement dans la boucle principale
       }

@@ -94,6 +94,11 @@ bool Storage::initializeFileName() {
     return false; // Already initialized
 }
 
+void Storage::startNewRecording() {
+    currentFileName_ = generateFileName();
+    log("New recording file: " + currentFileName_);
+}
+
 String Storage::generateFileName() {
     // Generate a filename based on RTC timestamp
     // Format: /replay/YYYY-MM-DD_HH-MM-SS.json

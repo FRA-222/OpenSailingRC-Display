@@ -120,6 +120,14 @@ public:
      * @warning Must be called before any write operations
      */
     bool initializeFileName();
+
+    /**
+     * @brief Start a new recording session with a fresh file
+     * 
+     * Generates a new filename based on current RTC timestamp.
+     * Called each time the user presses RECORD.
+     */
+    void startNewRecording();
     
     /**
      * @brief Write a single data entry to SD card
