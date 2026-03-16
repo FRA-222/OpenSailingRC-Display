@@ -31,11 +31,13 @@ private:
   String lastBoatDisplayName = "";
   int lastSelectedBoatIdx = -1;
   int lastTotalBoatCount = -1;
+  bool lastHubActive = false;
+  uint32_t lastHubRelayed = 0;
   
 public:
   void showSplashScreen();
   void drawSpeedBar(float speedKmh);
-  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0, bool hasSDError = false, int selectedBoatIndex = 0);
+  void drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive = false, int boatCount = 0, float windDirection = 0, unsigned long windDirTimestamp = 0, bool hasSDError = false, int selectedBoatIndex = 0, bool hubActive = false, uint32_t hubTotalRelayed = 0);
   void drawCompass(float heading);
   void showFileServerStatus(bool active, const String& ipAddress);
   void updateServerMessageDisplay(); // Nouvelle fonction pour l'affichage non-bloquant

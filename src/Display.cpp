@@ -87,7 +87,7 @@ void Display::drawSpeedBar(float speedKmh) {
  * - Wind speed from buoy sensor
  * - GPS recording status indicator (green "RECORD" button when active)
  */
-void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp, bool hasSDError, int selectedBoatIndex) {
+void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp, bool hasSDError, int selectedBoatIndex, bool hubActive, uint32_t hubTotalRelayed) {
     float speedKmh = boatData.speed * 3.6;
     float windSpeedKmh = anemometerData.windSpeed * 3.6;
     
@@ -176,6 +176,24 @@ void Display::drawDisplay(const struct_message_Boat& boatData, const struct_mess
             lastSelectedBoatIdx = boatIdx;
             lastTotalBoatCount = totalBoats;
         }
+    }
+    
+    // Indicateur HUB (entre la barre de statut et les données, y=26)
+    if (hubActive != lastHubActive || hubTotalRelayed != lastHubRelayed) {
+        M5.Lcd.fillRect(0, 26, 200, 12, BLACK);
+        M5.Lcd.setTextDatum(TL_DATUM);
+        M5.Lcd.setTextSize(1);
+        if (hubActive) {
+            M5.Lcd.setTextColor(GREEN);
+            M5.Lcd.setCursor(2, 28);
+            M5.Lcd.printf("HUB OK  relayed:%lu", hubTotalRelayed);
+        } else {
+            M5.Lcd.setTextColor(DARKGREY);
+            M5.Lcd.setCursor(2, 28);
+            M5.Lcd.print("HUB --");
+        }
+        lastHubActive = hubActive;
+        lastHubRelayed = hubTotalRelayed;
     }
     
     // Mettre à jour uniquement la vitesse si elle a changé ou si le timeout a changé
@@ -629,6 +647,8 @@ void Display::forceFullRefresh() {
     lastBoatDisplayName = "";
     lastSelectedBoatIdx = -1;
     lastTotalBoatCount = -1;
+    lastHubActive = false;
+    lastHubRelayed = 0;
     
     // Effacer l'écran
     M5.Lcd.fillRect(0, 0, screenWidth, 180, BLACK);

@@ -1,6 +1,27 @@
 #pragma once
 #include <stdint.h>
 
+// Message type constants (must match Hub PacketTypes.h)
+static constexpr uint8_t MSG_TYPE_BOAT_GPS     = 1;
+static constexpr uint8_t MSG_TYPE_ANEMOMETER   = 2;
+static constexpr uint8_t MSG_TYPE_HUB_STATUS   = 10;
+
+// Hub status packet (received from Hub every 5s)
+typedef struct __attribute__((packed)) struct_message_HubStatus {
+    uint8_t messageType;        // MSG_TYPE_HUB_STATUS = 10
+    uint8_t hubId;
+    uint32_t uptimeMs;
+    uint32_t relayedCommands;
+    uint32_t relayedStates;
+    uint32_t relayedGPS;
+    uint32_t relayedAnemometer;
+    float batteryVoltage;
+    int8_t rssiAvg;
+    uint8_t connectedBuoys;
+    uint8_t connectedBoats;
+    bool anemometerSeen;
+} struct_message_HubStatus;
+
 // Structures de données
 typedef struct struct_message_Boat {
     int8_t messageType;  // 1 = Boat, 2 = Anemometer

@@ -65,11 +65,13 @@
 struct_message_Boat incomingBoatData = {};
 struct_message_Anemometer incomingAnemometerData = {};
 struct_message_Buoy incomingBuoyData = {};
+struct_message_HubStatus incomingHubStatus = {};
 
 // Timestamps de réception des données (géré localement)
 unsigned long boatDataTimestamp = 0;
 unsigned long anemometerDataTimestamp = 0;
 unsigned long buoyDataTimestamp = 0;
+unsigned long hubStatusTimestamp = 0;
 
 // Structure pour gérer plusieurs bateaux
 typedef struct BoatInfo {
@@ -98,6 +100,7 @@ typedef struct BuoyInfo {
 // Map pour stocker les données de plusieurs bouées (clé = buoyId)
 std::map<uint8_t, BuoyInfo> detectedBuoys;
 const unsigned long BUOY_TIMEOUT_MS = 10000; // 10 secondes - timeout données bouée
+const unsigned long HUB_TIMEOUT_MS = 10000; // 10 secondes - timeout statut Hub
 unsigned long lastBuoyUpdateTimestamp = 0; // Timestamp de la dernière mise à jour bouée
 volatile float lastComputedWindDirection = -1; // Dernière direction du vent calculée (pour stockage anémomètre)
 volatile bool sdWriteError = false; // Flag d'erreur d'écriture SD (mis par storageTask)
@@ -329,6 +332,15 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
 
   switch (messageType)
   {
+  case MSG_TYPE_HUB_STATUS: { // Hub Status (messageType=10)
+    if (len == sizeof(struct_message_HubStatus)) {
+        memcpy(&incomingHubStatus, incomingDataPtr, sizeof(incomingHubStatus));
+        hubStatusTimestamp = millis();
+        newData = true;
+    }
+    break;
+  }
+
   case 1: { // GPS Boat
 
     // Copie rapide des données (vérification de taille exacte)
@@ -800,7 +812,9 @@ void loop() {
     }
     // Afficher les données malgré l'erreur SD si on a des données
     if (millis() % 5000 < 100) { // Toutes les 5 secondes pendant 100ms
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
+      bool hubActive = (hubStatusTimestamp > 0) && (millis() - hubStatusTimestamp < HUB_TIMEOUT_MS);
+      uint32_t hubRelayed = incomingHubStatus.relayedCommands + incomingHubStatus.relayedStates + incomingHubStatus.relayedGPS + incomingHubStatus.relayedAnemometer;
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex, hubActive, hubRelayed);
       delay(100);
       display.showSDError("Toucher écran pour réessayer");
     }
@@ -919,7 +933,9 @@ void loop() {
   // MAIS ne pas rafraîchir si le serveur est actif (on veut garder l'URL affichée)
   if (display.needsRefresh() && !fileServer.isServerActive()) {
     logger.log("Refresh automatique après message serveur");
-    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
+    bool hubActive = (hubStatusTimestamp > 0) && (millis() - hubStatusTimestamp < HUB_TIMEOUT_MS);
+    uint32_t hubRelayed = incomingHubStatus.relayedCommands + incomingHubStatus.relayedStates + incomingHubStatus.relayedGPS + incomingHubStatus.relayedAnemometer;
+    display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex, hubActive, hubRelayed);
   }
  
   // Nettoyer les bateaux avec timeout
@@ -940,8 +956,10 @@ void loop() {
   // Ne pas rafraîchir l'affichage si le serveur de fichiers est actif
   // pour garder l'URL visible à l'écran
   if (!fileServer.isServerActive()) {
+    bool hubActive = (hubStatusTimestamp > 0) && (millis() - hubStatusTimestamp < HUB_TIMEOUT_MS);
+    uint32_t hubRelayed = incomingHubStatus.relayedCommands + incomingHubStatus.relayedStates + incomingHubStatus.relayedGPS + incomingHubStatus.relayedAnemometer;
     if (newData) {
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex, hubActive, hubRelayed);
       
       newData = false;
     }
@@ -959,7 +977,7 @@ void loop() {
         lastServerState = currentServerState;
       }
       
-      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex);
+      display.drawDisplay(incomingBoatData, incomingAnemometerData, isRecording, fileServer.isServerActive(), boatMacList.size(), avgWindDir, windDirTs, sdWriteError, selectedBoatIndex, hubActive, hubRelayed);
     }
   } else {
     // Serveur actif : consommer le flag newData mais ne pas rafraîchir l'écran
