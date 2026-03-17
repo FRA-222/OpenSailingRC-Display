@@ -575,6 +575,10 @@ void reinitializeESPNow() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   
+  // Enable ESP-NOW Long Range mode (compatible with normal mode)
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  logger.log("ESP-NOW Long Range réactivé");
+  
   // Set maximum TX power for best range (84 = 21 dBm = maximum power)
   esp_wifi_set_max_tx_power(84);
   logger.log("Puissance TX réglée à 21 dBm (max)");
@@ -656,6 +660,21 @@ void setup() {
   
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+  
+  logger.enableSerialLogging(true);
+
+  // Enable ESP-NOW Long Range mode (compatible with normal mode)
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  
+  // Verify Long Range mode is active
+  uint8_t protocol = 0;
+  esp_wifi_get_protocol(WIFI_IF_STA, &protocol);
+  logger.log(String("WiFi protocols: ") + 
+    String((protocol & WIFI_PROTOCOL_11B) ? "11b " : "") +
+    String((protocol & WIFI_PROTOCOL_11G) ? "11g " : "") +
+    String((protocol & WIFI_PROTOCOL_11N) ? "11n " : "") +
+    String((protocol & WIFI_PROTOCOL_LR) ? "LR" : "NO-LR"));
+  logger.log("ESP-NOW Long Range activé");
   
   // Set maximum TX power for best range (84 = 21 dBm = maximum power)
   esp_wifi_set_max_tx_power(84);
