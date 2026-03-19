@@ -575,9 +575,9 @@ void reinitializeESPNow() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   
-  // Enable ESP-NOW Long Range mode (compatible with normal mode)
-  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
-  logger.log("ESP-NOW Long Range réactivé");
+  // Enable ESP-NOW Long Range mode only (all devices use LR)
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+  logger.log("ESP-NOW Long Range ONLY réactivé");
   
   // Set maximum TX power for best range (84 = 21 dBm = maximum power)
   esp_wifi_set_max_tx_power(84);
@@ -663,18 +663,15 @@ void setup() {
   
   logger.enableSerialLogging(true);
 
-  // Enable ESP-NOW Long Range mode (compatible with normal mode)
-  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  // Enable ESP-NOW Long Range mode only (all devices use LR)
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
   
   // Verify Long Range mode is active
   uint8_t protocol = 0;
   esp_wifi_get_protocol(WIFI_IF_STA, &protocol);
-  logger.log(String("WiFi protocols: ") + 
-    String((protocol & WIFI_PROTOCOL_11B) ? "11b " : "") +
-    String((protocol & WIFI_PROTOCOL_11G) ? "11g " : "") +
-    String((protocol & WIFI_PROTOCOL_11N) ? "11n " : "") +
+  logger.log(String("WiFi protocol: ") + 
     String((protocol & WIFI_PROTOCOL_LR) ? "LR" : "NO-LR"));
-  logger.log("ESP-NOW Long Range activé");
+  logger.log("ESP-NOW Long Range ONLY mode");
   
   // Set maximum TX power for best range (84 = 21 dBm = maximum power)
   esp_wifi_set_max_tx_power(84);
