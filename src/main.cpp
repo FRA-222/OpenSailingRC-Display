@@ -479,6 +479,7 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
       if (buoyInfo.lastUpdate > 0 && 
           incomingBuoyData.sequenceNumber == buoyInfo.data.sequenceNumber &&
           incomingBuoyData.sequenceNumber != 0) {
+          logger.log("Buoy " + String(incomingBuoyData.buoyId) + " duplicate seq=" + String(incomingBuoyData.sequenceNumber) + " (TTL=" + String(incomingBuoyData.ttl) + ")");
           break; // Paquet dupliqué, ignorer
       }
       

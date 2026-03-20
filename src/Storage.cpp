@@ -250,6 +250,7 @@ bool Storage::writeDataBatch(const std::vector<StorageData>& dataList) {
             doc["longitude"] = data.buoyData.longitude;
             doc["autoPilotThrottleCmde"] = data.buoyData.autoPilotThrottleCmde;
             doc["autoPilotTrueHeadingCmde"] = data.buoyData.autoPilotTrueHeadingCmde;
+            doc["sequenceNumber"] = data.buoyData.sequenceNumber;
         }
         
         serializeJson(doc, file);
