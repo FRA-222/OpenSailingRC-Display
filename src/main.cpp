@@ -328,6 +328,42 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
   // Logs de debug désactivés pour éviter de bloquer le callback
   // et manquer des paquets suivants
   
+  // FIX: Vérifier la taille bouée EN PREMIER, avant d'interpréter le premier
+  // byte comme messageType. Les bouées n'ont pas de champ messageType : leur
+  // premier byte est buoyId (0-7). Sans ce check, buoyId=1 tombe dans case 1
+  // (GPS Boat) et buoyId=2 dans case 2 (Anemometer), et les paquets sont
+  // rejetés car la taille ne correspond pas.
+  if (len == sizeof(struct_message_Buoy)) {
+    memcpy(&incomingBuoyData, incomingDataPtr, sizeof(incomingBuoyData));
+    
+    // Déduplication par sequenceNumber et buoyId
+    BuoyInfo& buoyInfo = detectedBuoys[incomingBuoyData.buoyId];
+    if (buoyInfo.lastUpdate > 0 && 
+        incomingBuoyData.sequenceNumber == buoyInfo.data.sequenceNumber &&
+        incomingBuoyData.sequenceNumber != 0) {
+        return; // Paquet dupliqué, ignorer
+    }
+    
+    buoyDataTimestamp = millis();
+    buoyInfo.data = incomingBuoyData;
+    buoyInfo.lastUpdate = millis();
+    lastBuoyUpdateTimestamp = millis();
+    newData = true;
+    
+    // Stockage sur SD (non-bloquant)
+    if (isRecording && sdInitialized) {
+      if (xSemaphoreTake(storageDataMutex, 0) == pdTRUE) {
+        StorageData storageData;
+        storageData.timestamp = millis();
+        storageData.dataType = DATA_TYPE_BUOY;
+        storageData.buoyData = incomingBuoyData;
+        pendingStorageData.push_back(storageData);
+        xSemaphoreGive(storageDataMutex);
+      }
+    }
+    return;
+  }
+
   uint8_t messageType = incomingDataPtr[0]; // Premier byte = type
 
   switch (messageType)
@@ -469,44 +505,9 @@ void onReceive(const uint8_t *mac, const uint8_t *incomingDataPtr, int len)
   } // Fin case 2
 
   default: {
-    // Essayer de décoder comme message de bouée GPS autonome
-    if (len == sizeof(struct_message_Buoy)) {
-      memcpy(&incomingBuoyData, incomingDataPtr, sizeof(incomingBuoyData));
-      
-      // Déduplication par sequenceNumber et buoyId
-      // Ignorer les paquets déjà traités (direct + relayé par Hub)
-      BuoyInfo& buoyInfo = detectedBuoys[incomingBuoyData.buoyId];
-      if (buoyInfo.lastUpdate > 0 && 
-          incomingBuoyData.sequenceNumber == buoyInfo.data.sequenceNumber &&
-          incomingBuoyData.sequenceNumber != 0) {
-          logger.log("Buoy " + String(incomingBuoyData.buoyId) + " duplicate seq=" + String(incomingBuoyData.sequenceNumber) + " (TTL=" + String(incomingBuoyData.ttl) + ")");
-          break; // Paquet dupliqué, ignorer
-      }
-      
-      buoyDataTimestamp = millis();
-      
-      // Stocker les données par bouée pour le calcul de la direction du vent
-      buoyInfo.data = incomingBuoyData;
-      buoyInfo.lastUpdate = millis();
-      lastBuoyUpdateTimestamp = millis();
-      
-      newData = true;
-      
-      // Stockage sur SD (non-bloquant)
-      if (isRecording && sdInitialized) {
-        if (xSemaphoreTake(storageDataMutex, 0) == pdTRUE) {
-          StorageData storageData;
-          storageData.timestamp = millis(); // Display clock for Kepler consistency
-          storageData.dataType = DATA_TYPE_BUOY;
-          storageData.buoyData = incomingBuoyData;
-          pendingStorageData.push_back(storageData);
-          xSemaphoreGive(storageDataMutex);
-        }
-      }
-    } else {
-      // Message inconnu
-      logger.log("Message ESP-NOW inconnu (taille: " + String(len) + " bytes)");
-    }
+    // Les bouées sont déjà traitées avant le switch (check par taille)
+    // Ici ne restent que les messages vraiment inconnus
+    logger.log("Message ESP-NOW inconnu (type: " + String(incomingDataPtr[0]) + ", taille: " + String(len) + " bytes)");
     break;
   }
   } // Fin switch
