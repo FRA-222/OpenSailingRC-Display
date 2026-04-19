@@ -42,7 +42,7 @@ void Display::showSplashScreen() {
     M5.Lcd.drawString("OpenSailingRC", centerX, centerY - 80);
     M5.Lcd.drawString("Display", centerX, centerY - 40);
     M5.Lcd.setTextSize(3);
-    M5.Lcd.drawString("V1.0.6", centerX, centerY + 10);
+    M5.Lcd.drawString("V1.0.7", centerX, centerY + 10);
     delay(2000);
     M5.Lcd.fillScreen(BLACK);
 }
@@ -88,7 +88,7 @@ void Display::drawSpeedBar(float speedKmh) {
  * - GPS recording status indicator (green "RECORD" button when active)
  */
 void Display::drawDisplay(const struct_message_Boat& boatData, const struct_message_Anemometer& anemometerData, bool isRecording, bool isServerActive, int boatCount, float windDirection, unsigned long windDirTimestamp, bool hasSDError, int selectedBoatIndex, bool hubActive, uint32_t hubTotalRelayed) {
-    float speedKmh = boatData.speed * 3.6;
+    float speedKmh = boatData.speed * 1.852;    // knots → km/h
     float windSpeedKmh = anemometerData.windSpeed * 3.6;
     
     // Toujours forcer le datum TL (top-left) car drawButtonLabels le change en MC_DATUM
