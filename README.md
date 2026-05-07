@@ -3,11 +3,11 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Platform: ESP32](https://img.shields.io/badge/Platform-ESP32-green.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Hardware: M5Stack Core2](https://img.shields.io/badge/Hardware-M5Stack%20Core2-orange.svg)](https://shop.m5stack.com/products/m5stack-core2-esp32-iot-development-kit)
-[![Version](https://img.shields.io/badge/Version-1.0.3-brightgreen.svg)](https://github.com/FRA-222/Boat-GPS-Display/releases)
+[![Version](https://img.shields.io/badge/Version-1.0.7-brightgreen.svg)](https://github.com/FRA-222/Boat-GPS-Display/releases)
 
 Un système d'affichage GPS et anémométrique pour télécommande de voilier RC basé sur un M5Stack Core2. Ce projet fait partie de l'écosystème [OpenSailingRC](https://github.com/FRA-222) et affiche en temps réel les données de navigation (bateau et vent) via ESP-NOW.
 
-> 🎉 **Version 1.0.3** - Nouvelle interface 4 lignes avec système de timeout intelligent
+> 🎉 **Version 1.0.7** - Nouvelle interface 4 lignes avec système de timeout intelligent
 
 ## 🎯 Caractéristiques
 
@@ -61,7 +61,7 @@ Interface compacte et lisible affichant toutes les données essentielles :
 
 2. **Télécharger le firmware**
    - Aller dans [Releases](https://github.com/FRA-222/Boat-GPS-Display/releases)
-   - Télécharger `OpenSailingRC_Display_v1.0.3_MERGED.bin`
+   - Télécharger `OpenSailingRC_Display_v1.0.7_MERGED.bin`
 
 3. **Flasher le M5Stack Core2**
    - Ouvrir M5Burner
@@ -154,12 +154,12 @@ Interface compacte et lisible affichant toutes les données essentielles :
 - **Portée** : 100-200 mètres en ligne de vue
 
 #### Compatibilité
-- ⚠️ **Version 1.0.3 requise sur tous les appareils**
+- ⚠️ **Version 1.0.7 requise sur tous les appareils**
 - Incompatible avec versions antérieures (structure modifiée)
 - Nécessite :
-  - OpenSailingRC-Display v1.0.3
-  - OpenSailingRC-Anemometer v1.0.3
-  - OpenSailingRC-BoatGPS v1.0.3
+  - OpenSailingRC-Display v1.0.7
+  - OpenSailingRC-Anemometer v1.0.7
+  - OpenSailingRC-BoatGPS v1.0.6+
 
 ## 🏗️ Architecture du projet
 
@@ -211,7 +211,7 @@ Système de logging unifié pour le debugging.
 
 ## 📊 Format des données
 
-### Structures ESP-NOW (v1.0.3)
+### Structures ESP-NOW (v1.0.7)
 
 #### struct_message_Boat
 ```cpp
@@ -315,12 +315,18 @@ Ce projet est sous licence GNU General Public License v3.0. Voir le fichier [LIC
 
 ## 📦 Releases
 
-### Version 1.0.3 (Actuelle)
+### Version 1.0.7 (Actuelle)
 - ✅ Interface 4 lignes (BOAT + WIND)
 - ✅ Système de timeout 5 secondes
 - ✅ Terminologie WIND au lieu de BUOY
 - ✅ Structures avec timestamp
 - ✅ Merged bin pour M5Burner
+
+📥 [Télécharger v1.0.7](https://github.com/FRA-222/Boat-GPS-Display/releases/tag/v1.0.7)
+
+### Version 1.0.3
+- ✅ Interface 4 lignes initiale
+- ✅ Système de timeout 5 secondes
 
 📥 [Télécharger v1.0.3](https://github.com/FRA-222/Boat-GPS-Display/releases/tag/v1.0.3)
 
